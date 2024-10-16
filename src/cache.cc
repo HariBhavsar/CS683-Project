@@ -674,6 +674,17 @@ void CACHE::initialize()
 {
   impl_prefetcher_initialize();
   impl_initialize_replacement();
+  // if (NAME.compare("LLC") == 0) {
+  //   upper_levels.clear();
+  //   upper_levels.push_back(l1DToL2);
+  //   upper_levels.push_back(l1IToL2);
+  // }
+  // else if (NAME.compare("cpu0_L1D") == 0) {
+  //   lower_level = l1DToL2;
+  // }
+  // else if (NAME.compare("cpu0_L1I") == 0) {
+  //   lower_level = l1IToL2;
+  // }
 }
 
 void CACHE::begin_phase()

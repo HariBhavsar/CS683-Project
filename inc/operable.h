@@ -24,7 +24,9 @@ class operable
 {
 public:
   const double CLOCK_SCALE;
-
+  static channel* l2ToLLC;
+  static channel* l1DToL2;
+  static channel* l1IToL2;
   double leap_operation = 0;
   uint64_t current_cycle = 0;
   bool warmup = true;

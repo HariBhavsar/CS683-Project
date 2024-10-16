@@ -37,6 +37,11 @@ std::chrono::seconds elapsed_time() { return std::chrono::duration_cast<std::chr
 
 namespace champsim
 {
+
+    channel* operable::l2ToLLC = new channel;
+    channel* operable::l1DToL2 = new channel;
+    channel* operable::l1IToL2 = new channel;
+
 phase_stats do_phase(phase_info phase, environment& env, std::vector<tracereader>& traces)
 {
   auto [phase_name, is_warmup, length, trace_index, trace_names] = phase;
