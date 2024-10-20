@@ -43,6 +43,10 @@ namespace champsim
   
   void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
     
+    // if ((addr >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) {
+      // std::cout<<"Call invalidate sp. address from "<<LLC<<"\n";
+    // }    
+
     int set = getSet((addr >> LOG2_BLOCK_SIZE));
     bool found = false;
     for (int i=0; i<numWays; i++) {
@@ -54,11 +58,14 @@ namespace champsim
             table[set][i].isInBoth = false;
             return;
           }
-          else {
+          else if (table[set][i].isInLLC) {
             // invalidate entry
             table[set][i].tag = 0;
             table[set][i].invalid = true;
             found = true;
+          }
+          else {
+            return;
           }
         }
         else {
@@ -69,11 +76,14 @@ namespace champsim
             table[set][i].isInBoth = false;
             return;
           }
-          else {
+          else if (!table[set][i].isInLLC) {
             // invalidate entry
             table[set][i].tag = 0;
             table[set][i].invalid = true;
             found = true;
+          }
+          else {
+            return;
           }
         }
       }  
@@ -87,10 +97,10 @@ namespace champsim
 
   int operable::levelPredictor::insert(uint64_t addr, bool LLC) {
   
-    // if ((addr >> LOG2_BLOCK_SIZE) == (11726288 >> LOG2_BLOCK_SIZE)) {
+    // if ((addr >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) {
       // std::cout<<"Call insert sp. address from "<<LLC<<"\n";
     // }
-
+// 
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
 
     int set = getSet(cl_addr);
@@ -102,8 +112,12 @@ namespace champsim
       }
       else if (table[set][i].tag == cl_addr) {
         // we need to update LLC
-        if (table[set][i].isInLLC && (!LLC)) {
+        if ((table[set][i].isInLLC) && (!LLC)) {
           table[set][i].isInBoth = true;
+        }
+        else if ((!table[set][i].isInLLC) && LLC) {
+          table[set][i].isInBoth = true;
+          return 1;
         }
         table[set][i].isInLLC = LLC;
         if (LLC) {

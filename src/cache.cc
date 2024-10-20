@@ -87,9 +87,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
 
-  if (((fill_mshr.address == 1137648) || (fill_mshr.address == 140726619487216)) && NAME[NAME.length() - 1] != 'B') {
-    std::cout<<"mil gaya saala "<<" I am "<<NAME<<std::endl;
-  }
+  // if (((fill_mshr.address == 1137648) || (fill_mshr.address == 140726619487216)) && NAME[NAME.length() - 1] != 'B') {
+  //   std::cout<<"mil gaya saala "<<" I am "<<NAME<<std::endl;
+  // }
 
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -318,7 +318,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
                handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address,
                access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this, current_cycle);
   }
-
+  // if ((handle_pkt.address >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE) && (NAME.compare("cpu0_L1D") == 0)) {
+    // std::cout<<"Ok sp address detected, what happens to it"<<std::endl;
+  // }
   mshr_type to_allocate{handle_pkt, current_cycle};
 
   cpu = handle_pkt.cpu;
@@ -343,9 +345,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       if constexpr (champsim::debug_print) {
         fmt::print("[{}] {} MSHR full\n", NAME, __func__);
       }
-      if (handle_pkt.address == 1137648) {
-        std::cout<<"Ye bakchodi hai kya?\n";
-      }
+      // if (handle_pkt.address == 1137648) {
+        // std::cout<<"Ye bakchodi hai kya?\n";
+      // }
       return false;  // TODO should we allow prefetches anyway if they will not be filled to this level?
     }
 
@@ -377,14 +379,17 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       // handle misses using level predictor only for L1D or L1I
 
       int whereToLook = this->lp[cpu]->wherePresent(handle_pkt.address);
+      fwd_pkt.response_requested = true;
+      // if (((handle_pkt.address >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) && (NAME == "cpu0_L1D")) {
+      //   std::cout<<"Aya bhai, "<<whereToLook<<"\n";
+      //   if (whereToLook == 2) {
 
-      if ((handle_pkt.address == 1137648) && (NAME == "cpu0_L1D")) {
-        std::cout<<"Aya bhai, "<<whereToLook<<"\n";
-      }
+      //     success = this->lp[cpu]->l2ToLLC->add_rq(fwd_pkt);
+      //     std::cout<<"sucess = "<<success<<"\n";
+      //     return success;
+      //   }
+      // }
 
-      if ((handle_pkt.address >> LOG2_BLOCK_SIZE) == (185526056 >> LOG2_BLOCK_SIZE)) {
-        std::cout<<"SP address being asked by "<<NAME<<" from "<<whereToLook<<std::endl;
-      }
 
       if (whereToLook == 0) {
         // go to DRAM
