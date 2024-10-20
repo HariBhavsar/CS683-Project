@@ -38,9 +38,123 @@ std::chrono::seconds elapsed_time() { return std::chrono::duration_cast<std::chr
 namespace champsim
 {
 
-    channel* operable::l2ToLLC = new channel;
-    channel* operable::l1DToL2 = new channel;
-    channel* operable::l1IToL2 = new channel;
+  // operable::levelPredictor** lp = new operable::levelPredictor* [NUM_CPUS];
+  bool operable::isConstructed = false;
+  
+  void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
+    
+    int set = getSet((addr >> LOG2_BLOCK_SIZE));
+    bool found = false;
+    for (int i=0; i<numWays; i++) {
+      if (table[set][i].tag == (addr >> LOG2_BLOCK_SIZE)) {
+        if (LLC) {
+          // block is being evicted from LLC, check to see if its in L2
+          if (table[set][i].isInBoth) {
+            // yes, so simply make this false
+            table[set][i].isInBoth = false;
+            return;
+          }
+          else {
+            // invalidate entry
+            table[set][i].tag = 0;
+            table[set][i].invalid = true;
+            found = true;
+          }
+        }
+        else {
+          // block is being evicted from L2, check if its in both
+          if (table[set][i].isInBoth) {
+            // we need to change iska location to LLC, and make it not be in both
+            table[set][i].isInLLC = true;
+            table[set][i].isInBoth = false;
+            return;
+          }
+          else {
+            // invalidate entry
+            table[set][i].tag = 0;
+            table[set][i].invalid = true;
+            found = true;
+          }
+        }
+      }  
+    }
+    if (found) {
+      return;
+    }
+    std::cout<<"Should never reach here!\n";
+    exit(1);
+  }
+
+  int operable::levelPredictor::insert(uint64_t addr, bool LLC) {
+  
+    // if ((addr >> LOG2_BLOCK_SIZE) == (11726288 >> LOG2_BLOCK_SIZE)) {
+      // std::cout<<"Call insert sp. address from "<<LLC<<"\n";
+    // }
+
+    uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+
+    int set = getSet(cl_addr);
+
+    int invalidWay = -1;
+    for (int i=0; i<numWays; i++) {
+      if (table[set][i].invalid) {
+        invalidWay = i;
+      }
+      else if (table[set][i].tag == cl_addr) {
+        // we need to update LLC
+        if (table[set][i].isInLLC && (!LLC)) {
+          table[set][i].isInBoth = true;
+        }
+        table[set][i].isInLLC = LLC;
+        if (LLC) {
+          // return 1 if block was originally in L2, being inserted into L3
+          return 1;
+        }
+        else {
+          // return 2 if block was originally in L3, being inserted into L2
+          return 2;
+        }
+      }
+    }
+    if (invalidWay == -1) {
+      std::cerr<<"What the fuck dheeraj\n";
+      exit(1);
+    }
+    table[set][invalidWay].invalid = false;
+    table[set][invalidWay].isInLLC = LLC;
+    table[set][invalidWay].tag = cl_addr;
+    // return 0 if block came from DRAM
+    return 0;
+
+  }
+
+  int operable::levelPredictor::wherePresent(uint64_t addr) {
+    // returns 0 if addr in DRAM, 1 if in L2 and 2 if in LLC
+    uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+
+    int set = getSet(cl_addr);
+    
+    for (int i=0; i<numWays; i++) {
+      if (!table[set][i].invalid && table[set][i].tag == cl_addr) {
+        if (table[set][i].isInLLC) {
+          return 2;
+        }
+        else {
+          return 1;
+        }
+      }
+    }
+
+    return 0;
+    
+  }
+
+  int operable::levelPredictor::getSet(uint64_t cl_addr) {
+      // takes cache line address and returns set in LP it maps to 
+      uint64_t tmp = cl_addr & ((1 << indexingBits) - 1);
+      return tmp;
+
+  }
 
 phase_stats do_phase(phase_info phase, environment& env, std::vector<tracereader>& traces)
 {

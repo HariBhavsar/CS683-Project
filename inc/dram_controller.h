@@ -51,6 +51,11 @@ struct DRAM_CHANNEL {
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+    bool fromL1D;
+    access_type type;
+    uint64_t instr_id;
+    uint64_t ip;
+    bool responseRequested;
 
     explicit request_type(typename champsim::channel::request_type);
   };

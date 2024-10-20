@@ -51,7 +51,7 @@ long MEMORY_CONTROLLER::operate()
     if (warmup) {
       for (auto& entry : channel.RQ) {
         if (entry.has_value()) {
-          response_type response{entry->address, entry->v_address, entry->data, entry->pf_metadata, entry->instr_depend_on_me};
+          response_type response{entry->address, entry->v_address, entry->data, entry->pf_metadata, entry->instr_depend_on_me, entry->fromL1D, entry->type,entry->instr_id,entry->ip, entry->responseRequested};
           for (auto ret : entry.value().to_return)
             ret->push_back(response);
 
@@ -75,7 +75,7 @@ long MEMORY_CONTROLLER::operate()
     if (channel.active_request != std::end(channel.bank_request) && channel.active_request->event_cycle <= current_cycle) {
       response_type response{channel.active_request->pkt->value().address, channel.active_request->pkt->value().v_address,
                              channel.active_request->pkt->value().data, channel.active_request->pkt->value().pf_metadata,
-                             channel.active_request->pkt->value().instr_depend_on_me};
+                             channel.active_request->pkt->value().instr_depend_on_me, channel.active_request->pkt->value().fromL1D, channel.active_request->pkt->value().type,channel.active_request->pkt->value().instr_id,channel.active_request->pkt->value().ip,channel.active_request->pkt->value().responseRequested};
       for (auto ret : channel.active_request->pkt->value().to_return)
         ret->push_back(response);
 
@@ -241,7 +241,7 @@ void DRAM_CHANNEL::check_collision()
       };
       if (auto wq_it = std::find_if(std::begin(WQ), std::end(WQ), checker); wq_it != std::end(WQ)) {
         response_type response{rq_it->value().address, rq_it->value().v_address, rq_it->value().data, rq_it->value().pf_metadata,
-                               rq_it->value().instr_depend_on_me};
+                               rq_it->value().instr_depend_on_me,rq_it->value().fromL1D, rq_it->value().type,rq_it->value().instr_id,rq_it->value().ip,rq_it->value().responseRequested};
         response.data = wq_it->value().data;
         for (auto ret : rq_it->value().to_return)
           ret->push_back(response);
@@ -290,7 +290,7 @@ void MEMORY_CONTROLLER::initiate_requests()
 }
 
 DRAM_CHANNEL::request_type::request_type(typename champsim::channel::request_type req)
-    : pf_metadata(req.pf_metadata), address(req.address), v_address(req.address), data(req.data), instr_depend_on_me(req.instr_depend_on_me)
+    : pf_metadata(req.pf_metadata), address(req.address), v_address(req.address), data(req.data), instr_depend_on_me(req.instr_depend_on_me), fromL1D(req.fromL1D), type(req.type),instr_id(req.instr_id),ip(req.ip), responseRequested(req.response_requested)
 {
   asid[0] = req.asid[0];
   asid[1] = req.asid[1];

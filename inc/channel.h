@@ -66,6 +66,7 @@ class channel
     bool forward_checked = false;
     bool is_translated = true;
     bool response_requested = true;
+    bool fromL1D = false;
 
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
     access_type type{access_type::LOAD};
@@ -88,12 +89,17 @@ class channel
     uint64_t data;
     uint32_t pf_metadata = 0;
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
+    bool fromL1D;
+    access_type type;
+    uint64_t instr_id;
+    uint64_t ip;
 
-    response(uint64_t addr, uint64_t v_addr, uint64_t data_, uint32_t pf_meta, std::vector<std::reference_wrapper<ooo_model_instr>> deps)
-        : address(addr), v_address(v_addr), data(data_), pf_metadata(pf_meta), instr_depend_on_me(deps)
+    bool responseRequested;
+    response(uint64_t addr, uint64_t v_addr, uint64_t data_, uint32_t pf_meta, std::vector<std::reference_wrapper<ooo_model_instr>> deps, bool byp = false, access_type typ=(access_type)0, uint64_t instr=0, uint64_t p=0, bool r = false)
+        : address(addr), v_address(v_addr), data(data_), pf_metadata(pf_meta), instr_depend_on_me(deps), fromL1D(byp), type(typ), instr_id(instr), ip(p), responseRequested(r)
     {
     }
-    explicit response(request req) : response(req.address, req.v_address, req.data, req.pf_metadata, req.instr_depend_on_me) {}
+    explicit response(request req) : response(req.address, req.v_address, req.data, req.pf_metadata, req.instr_depend_on_me, req.fromL1D, req.type,req.instr_id,req.ip,req.response_requested) {}
   };
 
   template <typename R>

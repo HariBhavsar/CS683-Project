@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include "champsim.h"
 #include "champsim_constants.h"
@@ -55,6 +56,7 @@ struct cache_stats {
 
 class CACHE : public champsim::operable
 {
+
   enum [[deprecated(
       "Prefetchers may not specify arbitrary fill levels. Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] FILL_LEVEL{
       FILL_L1 = 1, FILL_L2 = 2, FILL_LLC = 4, FILL_DRC = 8, FILL_DRAM = 16};
@@ -69,6 +71,7 @@ class CACHE : public champsim::operable
     uint64_t data;
     uint64_t ip;
     uint64_t instr_id;
+    
 
     uint32_t pf_metadata;
     uint32_t cpu;
@@ -78,13 +81,15 @@ class CACHE : public champsim::operable
     bool skip_fill;
     bool is_translated;
     bool translate_issued = false;
-
+    
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 
     uint64_t event_cycle = std::numeric_limits<uint64_t>::max();
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+    bool fromL1D;
+    bool responseRequested;
 
     explicit tag_lookup_type(request_type req) : tag_lookup_type(req, false, false) {}
     tag_lookup_type(request_type req, bool local_pref, bool skip);
@@ -96,6 +101,7 @@ class CACHE : public champsim::operable
     uint64_t data;
     uint64_t ip;
     uint64_t instr_id;
+
 
     uint32_t pf_metadata;
     uint32_t cpu;
@@ -110,7 +116,8 @@ class CACHE : public champsim::operable
 
     std::vector<std::reference_wrapper<ooo_model_instr>> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
-
+    bool fromL1D;
+    bool responseRequested;
     mshr_type(tag_lookup_type req, uint64_t cycle);
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
   };
@@ -155,6 +162,7 @@ class CACHE : public champsim::operable
   std::deque<tag_lookup_type> translation_stash{};
 
 public:
+static std::vector<operable::levelPredictor*> lp;  // Declaration
   std::vector<channel_type*> upper_levels;
   channel_type* lower_level;
   channel_type* lower_translate;

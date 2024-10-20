@@ -17,17 +17,79 @@
 #ifndef OPERABLE_H
 #define OPERABLE_H
 
+#include <champsim_constants.h>
+#include <iostream>
+
 namespace champsim
 {
 
 class operable
 {
+
 public:
+  class levelPredictorEntry {
+    public:
+    uint64_t tag;
+    bool isInLLC;
+    bool isInBoth;
+    bool invalid;
+    levelPredictorEntry() {
+      invalid = true;
+    }
+  };
+
+  class levelPredictor {
+    public:
+    levelPredictorEntry** table = nullptr;
+    champsim::channel* l1DToLP = nullptr;
+    champsim::channel* l1IToLP = nullptr;
+    champsim::channel* l2ToLP = nullptr;
+    champsim::channel* llcToLP = nullptr;
+    champsim::channel* l1DToL2 = nullptr;
+    champsim::channel* l1IToL2 = nullptr;
+    champsim::channel* l2ToLLC = nullptr;
+    champsim::channel* llcToDRAM = nullptr;
+    int l2NumSets = -1;
+    int l2NumWays = -1;
+    int llcNumSets = -1;
+    int llcNumWays = -1;
+    int indexingBits = -1;
+    int numWays = -1;
+
+    int getSet (uint64_t cl_addr);
+
+    int wherePresent (uint64_t addr);
+
+    void invalidateEntry (uint64_t addr, bool LLC);
+
+    int insert (uint64_t addr, bool LLC); 
+
+    levelPredictor() {
+      std::cout<<"Constructor called\n";
+      table = nullptr;
+      l1DToLP = nullptr;
+      l1IToLP = nullptr;
+      l2ToLP = nullptr;
+      llcToLP = nullptr;
+      l1DToL2 = nullptr;
+      l1IToL2 = nullptr;
+      l2ToLLC = nullptr;
+      llcToDRAM = nullptr;
+      l2NumSets = -1;
+      l2NumWays = -1;
+      llcNumSets = -1;
+      llcNumWays = -1;
+      indexingBits = -1;
+      numWays = -1;
+    };
+  };
+
   const double CLOCK_SCALE;
-  static channel* l2ToLLC;
-  static channel* l1DToL2;
-  static channel* l1IToL2;
   double leap_operation = 0;
+static std::vector<operable::levelPredictor*> lp;  // Declaration
+
+  static bool isConstructed;
+
   uint64_t current_cycle = 0;
   bool warmup = true;
 
