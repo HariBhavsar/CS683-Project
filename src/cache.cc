@@ -17,6 +17,25 @@
 #include "cache.h"
 
 #define USE_LEVEL_PREDICTOR 1
+#define EXCLUSIVE 1
+
+/*
+
+Plan of action for Exclusive
+1] Its significantly different for L1D/I as compared to L2C/LLc
+2] For L1D/I, exclusive should NOT make any changes whatsoever, that is to say, all operations should remain the same
+3] For L2C/LLC there's a couple things we need to handle
+3.1] When we obtain writebacks/fills from upper levels (champsim notation, upper level of L2C is L1D/I), we should actually fill our cache
+3.2] When we obtain misses from upper levels <-> fills from lower levels, we should NOT fill our cache, there should be a bypass
+3.3] It is going to be tough to implement this bypass, but there is a strong hint on how to do it in this code itself
+3.4] When we obtain hits from upper levels, we need to evict the requested address after the hit occurs, this also means we need to update LP
+4] Finally, we need to update LP whenever our cache state changes
+4.1] Evictions occur due to 1] Lack of space in the cache (same as NINE, no need for extra code for this case)
+                            2] A hit on an address from lower level (different from NINE! Will need to update LP and implement eviction/invalidation)
+     In case of the latter, we also need to be careful not to send a writeback packet to the lower level
+4.2] Fills occur due to writebacks from lower level, that's it.
+
+*/
 
 #include <algorithm>
 #include <cassert>
@@ -527,13 +546,34 @@ long CACHE::operate()
 
   // Perform fills
   auto fill_bw = MAX_FILL;
-  for (auto q : {std::ref(MSHR), std::ref(inflight_writes)}) {
+  #ifdef EXCLUSIVE
+
+  for (auto q : {std::ref(inflight_writes)}) {
     auto [fill_begin, fill_end] =
         champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
     auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
     fill_bw -= std::distance(fill_begin, complete_end);
     q.get().erase(fill_begin, complete_end);
   }
+  for (auto q : {std::ref(MSHR)}) {
+    auto [fill_begin, fill_end] =
+        champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+    auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return true; });
+    fill_bw -= std::distance(fill_begin, complete_end);
+    q.get().erase(fill_begin, complete_end);
+  }
+
+  #else
+
+  for (auto q : {std::ref(MSHR),std::ref(inflight_writes)}) {
+    auto [fill_begin, fill_end] =
+        champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+    auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
+    fill_bw -= std::distance(fill_begin, complete_end);
+    q.get().erase(fill_begin, complete_end);
+  }  
+
+  #endif
   progress += MAX_FILL - fill_bw;
 
   // Initiate tag checks
