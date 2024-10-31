@@ -131,7 +131,10 @@ namespace champsim
       }
     }
     if (invalidWay == -1) {
-      std::cerr<<"What the fuck dheeraj\n";
+      std::cerr<<"What the fuck dheeraj, address is " << addr << ", it was in " << LLC << "\nPrinting set\n";
+      for (int i=0; i<numWays; i++) {
+        std::cout<<table[set][i].tag<<" ";
+      }
       exit(1);
     }
     table[set][invalidWay].invalid = false;

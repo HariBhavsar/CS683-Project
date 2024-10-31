@@ -17,7 +17,6 @@
 #include "cache.h"
 
 #define USE_LEVEL_PREDICTOR 1
-#define EXCLUSIVE 1
 
 /*
 
@@ -26,14 +25,22 @@ Plan of action for Exclusive
 2] For L1D/I, exclusive should NOT make any changes whatsoever, that is to say, all operations should remain the same
 3] For L2C/LLC there's a couple things we need to handle
 3.1] When we obtain writebacks/fills from upper levels (champsim notation, upper level of L2C is L1D/I), we should actually fill our cache
-3.2] When we obtain misses from upper levels <-> fills from lower levels, we should NOT fill our cache, there should be a bypass
-3.3] It is going to be tough to implement this bypass, but there is a strong hint on how to do it in this code itself
-3.4] When we obtain hits from upper levels, we need to evict the requested address after the hit occurs, this also means we need to update LP
+3.2] When we obtain misses from upper levels <-> fills from lower levels, we should NOT fill our cache, there should be a bypass: DONE
+3.3] It is going to be tough to implement this bypass, but there is a strong hint on how to do it in this code itself : Should be done
+3.4] When we obtain hits from upper levels, we need to evict the requested address after the hit occurs, this also means we need to update LP : DONE
 4] Finally, we need to update LP whenever our cache state changes
-4.1] Evictions occur due to 1] Lack of space in the cache (same as NINE, no need for extra code for this case)
-                            2] A hit on an address from lower level (different from NINE! Will need to update LP and implement eviction/invalidation)
-     In case of the latter, we also need to be careful not to send a writeback packet to the lower level
-4.2] Fills occur due to writebacks from lower level, that's it.
+4.1] Evictions occur due to 1] Lack of space in the cache (same as NINE, no need for extra code for this case) -> Need to check handle_fill functionality
+                            2] A hit on an address from lower level (different from NINE! Will need to update LP and implement eviction/invalidation) -> DONE with 3.4
+     In case of the latter, we also need to be careful not to send a writeback packet to the lower level -> DONE
+4.2] Fills occur due to writebacks from lower level, that's it.-> Need to note
+5] We should definitely writeback everytime now! Not just for dirty blocks. -> Need to modify, DONE
+
+*/
+
+/*
+
+3.2 & 3.3 -> Need new function, lets call it handle request?
+3.4 -> modify try_hit
 
 */
 
@@ -104,6 +111,7 @@ CACHE::BLOCK::BLOCK(mshr_type mshr)
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
+  trackAddr(fill_mshr.address,"handle_fill");
   cpu = fill_mshr.cpu;
 
   // if (((fill_mshr.address == 1137648) || (fill_mshr.address == 140726619487216)) && NAME[NAME.length() - 1] != 'B') {
@@ -130,8 +138,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   bool success = true;
   auto metadata_thru = fill_mshr.pf_metadata;
   auto pkt_address = (virtual_prefetch ? fill_mshr.v_address : fill_mshr.address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
-  if (way != set_end) {
-    if (way->valid && way->dirty) {
+  if (way != set_end) { // we need to make changes here, for L2C and LLC AND ACTUALLY EVEN FOR L1D and L1I! Need to writeback clean blocks too!
+    if ((way->valid && way->dirty && NAME[NAME.length() - 1] == 'B') || (way->valid && NAME[NAME.length() - 1] != 'B')) {
       request_type writeback_packet;
 
       writeback_packet.cpu = fill_mshr.cpu;
@@ -141,15 +149,16 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       writeback_packet.ip = 0;
       writeback_packet.type = access_type::WRITE;
       writeback_packet.pf_metadata = way->pf_metadata;
-      writeback_packet.response_requested = false;
+      writeback_packet.response_requested = 0;
       writeback_packet.fromL1D = fill_mshr.fromL1D;
 
       if constexpr (champsim::debug_print) {
         fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME,
             __func__, writeback_packet.address, writeback_packet.v_address, fill_mshr.pf_metadata);
       }
-
+      trackAddr(writeback_packet.address,"Writeback");
       success = lower_level->add_wq(writeback_packet);
+
     }
     #ifdef USE_LEVEL_PREDICTOR
     if (way->valid && NAME[NAME.length() - 1] == 'C') {
@@ -163,7 +172,11 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
           // std::cout<<"Evicting from L2 :D\n";
         // }
         this->lp[cpu]->invalidateEntry(way->address,false);
+        this->lp[cpu]->insert(way->address,true);
       }
+    }
+    else if (way->valid && (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I')) {
+      this->lp[cpu]->insert(way->address,false);
     }
     #endif
 
@@ -195,6 +208,11 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 
   }
 
+  if (NAME[NAME.length() - 1] == 'C') {
+    // std::cerr << "Cache is " << NAME << " address is " << fill_mshr.address << " v_addr is " << fill_mshr.v_address << std::endl;
+    assert((fill_mshr.responseRequested == false) || (fill_mshr.to_return.size() == 0));
+  }
+
   if (success) {
     // COLLECT STATS
     sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
@@ -203,87 +221,99 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     for (auto ret : fill_mshr.to_return)
       ret->push_back(response);
 
-    #ifdef USE_LEVEL_PREDICTOR
-      if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
-        return success;
-      }
-      bool LLC = (NAME.compare("LLC") == 0);
-      int whereDidIComeFrom = this->lp[cpu]->insert(fill_mshr.address,LLC);
-      if (LLC && whereDidIComeFrom == 0) {
-        // we came from DRAM, we should add this block to some queu
-        request_type writeback_packet;
-
-        writeback_packet.cpu = fill_mshr.cpu;
-        writeback_packet.address = fill_mshr.address;
-        writeback_packet.data = fill_mshr.data;
-        writeback_packet.instr_id = fill_mshr.instr_id;
-        writeback_packet.ip = fill_mshr.ip;
-        writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
-        writeback_packet.pf_metadata = fill_mshr.pf_metadata;
-        writeback_packet.response_requested = true;
-        writeback_packet.fromL1D = fill_mshr.fromL1D;
-        // if (fill_mshr.type == access_type::WRITE) {
-          // this->upper_levels[0]->add_wq(writeback_packet);
-        // }/
-        // if (fill_mshr.type == access_type::PREFETCH) {
-          // this->upper_levels[0]->add_pq(writeback_packet);
-        // }
-        // else {
-        this->upper_levels[0]->add_rq(writeback_packet);
-        // }
-
-      }
-      else if (LLC && whereDidIComeFrom == 1) {
-        ;
-      }
-      else if (!LLC && whereDidIComeFrom == 2) {
-        // coming from LLC into L2
-        request_type writeback_packet;
-
-        writeback_packet.cpu = fill_mshr.cpu;
-        writeback_packet.address = fill_mshr.address;
-        writeback_packet.data = fill_mshr.data;
-        writeback_packet.instr_id = fill_mshr.instr_id;
-        writeback_packet.ip = fill_mshr.ip;
-        writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
-        writeback_packet.pf_metadata = fill_mshr.pf_metadata;
-        writeback_packet.response_requested = true;
-        writeback_packet.fromL1D = fill_mshr.fromL1D;
-        // how to tell whether to go to L1D or to L1I?
-        if (fill_mshr.fromL1D) {
-          // if (fill_mshr.type == access_type::WRITE) {
-            // this->lp[cpu]->l1DToL2->add_wq(writeback_packet);
-          // }
-          // else if (fill_mshr.type == access_type::PREFETCH) {
-            // this->lp[cpu]->l1DToL2->add_pq(writeback_packet);
-          // }
-          // else {
-            this->lp[cpu]->l1DToL2->add_rq(writeback_packet);
-          // }
-        }
-        else {
-          // if (fill_mshr.type == access_type::WRITE) {
-            // this->lp[cpu]->l1IToL2->add_wq(writeback_packet);
-          // }
-          // else if (fill_mshr.type == access_type::PREFETCH) {
-            // this->lp[cpu]->l1IToL2->add_pq(writeback_packet);
-          // }
-          // else {
-            this->lp[cpu]->l1IToL2->add_rq(writeback_packet);
-          // }        
-        }
-      }
-
-    #endif
-
   }
 
 
   return success;
 }
 
+
+bool CACHE::handle_request(const mshr_type& fill_mshr)
+{
+  trackAddr(fill_mshr.address,"handle_request");
+  assert(NAME[NAME.length() - 1] == 'C'); // THIS FUNCTION SHOULD ONLY BE CALLED FOR L2C and LLC!
+
+  // the fact that we got to this function means two things
+  // IT HAS TO BE FROM A LOWER LEVEL!!!! 
+  // THAT IS IF WE ARE LLC WE MUST HAVE COME FROM DRAM
+  // IF WE ARE L2C WE MUST HAVE COME FROM LLC
+  // Can we query where we came from?
+  // Yes we can!
+  // actually we can't
+  // not that simple hm
+  // regardless of how we got here.... the address must be thought to be in DRAM...
+
+  cpu = fill_mshr.cpu;
+
+  bool isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
+  if (!isValid) {
+    std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
+  }
+  assert(isValid);
+
+  // should be only three cases to handle
+  // case 1 : we are LLC
+  //          -> we need to go to L2C
+  // case 2 : we are L2C and fill_mshr.from_L1D
+  //          -> we need to go to L1D
+  // case 3 : we are L2C and !fill_mshr.from_L1D
+  //          -> we need to go to L1I
+
+
+  bool success = true;
+  auto metadata_thru = fill_mshr.pf_metadata;
+  auto pkt_address = (virtual_prefetch ? fill_mshr.v_address : fill_mshr.address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
+
+  if (success) {
+    // COLLECT STATS
+    sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
+
+    response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, metadata_thru, fill_mshr.instr_depend_on_me, fill_mshr.fromL1D, fill_mshr.type, fill_mshr.instr_id, fill_mshr.ip};
+    for (auto ret : fill_mshr.to_return)
+      ret->push_back(response); //  need to keep this! 
+
+    #ifdef USE_LEVEL_PREDICTOR
+      if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
+        return success;
+      }
+
+      request_type writeback_packet;
+
+      writeback_packet.cpu = fill_mshr.cpu;
+      writeback_packet.address = fill_mshr.address;
+      writeback_packet.data = fill_mshr.data;
+      writeback_packet.instr_id = fill_mshr.instr_id;
+      writeback_packet.ip = fill_mshr.ip;
+      writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
+      writeback_packet.pf_metadata = fill_mshr.pf_metadata;
+      writeback_packet.response_requested = true;
+      writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+      if (NAME.compare("LLC") == 0) {
+        // we need to go to L2C
+        this->lp[cpu]->l2ToLLC->returned.push_back(response);
+      }
+      else {
+
+        if (fill_mshr.fromL1D) {
+            this->lp[cpu]->l1DToL2->returned.push_back(response);
+        }
+        else {
+          this->lp[cpu]->l1IToL2->returned.push_back(response);
+        }
+
+      }
+    #endif
+
+  }
+
+  // std::cout << "RetVal of handle_request is "<<success <<std::endl;
+  return success;
+}
+
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
+  trackAddr(handle_pkt.address,"try_hit");
   cpu = handle_pkt.cpu;
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
@@ -319,6 +349,27 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 
     way->dirty |= (handle_pkt.type == access_type::WRITE);
 
+    // need to evict block here
+    if (NAME[NAME.length() - 1] == 'C') {
+      // modification only for L2C and LLC
+      // need to do two things
+      // 1] Need to evict block from cache
+      // 2] Need to update LP (if present)
+      way->valid = 0;
+      way->address = 0;
+      way->v_address = 0;
+      way->dirty = false;
+      way->pf_metadata = 0;
+      // I don't think we need to update replacement state... Will look into it rn, yeah we don't
+      // that is eviction done btw
+      // now if LP is present, need to inform it
+      #ifdef USE_LEVEL_PREDICTOR
+
+      this->lp[cpu]->invalidateEntry(handle_pkt.address,(NAME.compare("LLC") == 0)); // should be enough
+
+      #endif
+    }
+
     // update prefetch stats and reset prefetch bit
     if (useful_prefetch) {
       ++sim_stats.pf_useful;
@@ -331,7 +382,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 {
-
+  trackAddr(handle_pkt.address,"Handle_miss");
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__,
                handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address,
@@ -345,6 +396,36 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
   cpu = handle_pkt.cpu;
 
   // check mshr
+  auto inflight_write_entry = std::find_if(std::begin(inflight_writes), std::end(inflight_writes), [match = handle_pkt.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) {
+    return (entry.address >> shamt) == match;
+  });
+  if (inflight_write_entry != inflight_writes.end()) {
+    // generate a response packet from here
+    std::string t;
+    t = "inflight write check size of to_return queue is : " + std::to_string(handle_pkt.to_return.size());
+    trackAddr(handle_pkt.address,t);
+    response_type response{handle_pkt.address, handle_pkt.v_address, inflight_write_entry->data, 0, handle_pkt.instr_depend_on_me, handle_pkt.fromL1D, handle_pkt.type, handle_pkt.instr_id, handle_pkt.ip};
+    for (auto ret : handle_pkt.to_return)
+      ret->push_back(response);
+    // we will need to uh kick this guy out of the inflight write queue
+    inflight_writes.erase(inflight_write_entry);
+    // oh wait, we also need to update our mf level predictor
+    #ifdef USE_LEVEL_PREDICTOR
+    // not completely sure of the update mechanism here. It might make sense to also insert into either of LLC or L2C
+    if (NAME[NAME.length() - 1] == 'C') {
+      if (NAME.compare("LLC") == 0) {
+        this->lp[cpu]->invalidateEntry(inflight_write_entry->address,true);
+      }
+      else {
+        this->lp[cpu]->invalidateEntry(inflight_write_entry->address,false);
+      }
+    }
+    #endif
+    // and um return true maybe
+    return true;
+    // I really pray this guy doesn't get added to the damn MSHR queue
+  }
+
   auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), [match = handle_pkt.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) {
     return (entry.address >> shamt) == match;
   });
@@ -490,6 +571,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 {
+  trackAddr(handle_pkt.address,"Handle_write");
+  // if (handle_pkt.address == 1184430) {
+    // std :: cout << "response requested is " << handle_pkt.responseRequested << std::endl;
+  // }
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
@@ -498,7 +583,7 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 
   inflight_writes.emplace_back(handle_pkt, current_cycle);
   inflight_writes.back().event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
-    
+
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
   return true;
@@ -525,6 +610,21 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
   };
 }
 
+void CACHE::trackAddr (uint64_t addr, std::string caller) {
+
+  if (NAME[NAME.length() - 1] == 'B') {
+    return;
+  }
+  if ((caller.compare("try_hit") == 0) && ((NAME[NAME.length() - 1] == 'D') || (NAME[NAME.length() - 1] == 'I'))) {
+    return;
+  }
+
+  // if ((this->lp[0]->getSet((addr >> LOG2_BLOCK_SIZE)) == (this->lp[0]->getSet((4156048 >> LOG2_BLOCK_SIZE))))) {
+  //   std :: cout << "Found special set, address is "<<addr<<", caller is "<< caller << " and Name is " << NAME << std::endl;
+  // }
+
+}
+
 long CACHE::operate()
 {
   long progress{0};
@@ -546,35 +646,42 @@ long CACHE::operate()
 
   // Perform fills
   auto fill_bw = MAX_FILL;
-  #ifdef EXCLUSIVE
+  if (NAME[NAME.length() - 1] != 'C') {// no change for L1D or L1I or TLBs
 
-  for (auto q : {std::ref(inflight_writes)}) {
-    auto [fill_begin, fill_end] =
-        champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
-    auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
-    fill_bw -= std::distance(fill_begin, complete_end);
-    q.get().erase(fill_begin, complete_end);
+    for (auto q : {std::ref(MSHR), std::ref(inflight_writes)}) {
+      auto [fill_begin, fill_end] =
+          champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+      auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
+      fill_bw -= std::distance(fill_begin, complete_end);
+      q.get().erase(fill_begin, complete_end);
+    }
+    progress += MAX_FILL - fill_bw;
+  
   }
-  for (auto q : {std::ref(MSHR)}) {
-    auto [fill_begin, fill_end] =
-        champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
-    auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return true; });
-    fill_bw -= std::distance(fill_begin, complete_end);
-    q.get().erase(fill_begin, complete_end);
+  else {
+
+    // for L2C or LLC, for writebacks (inflight_writes) -> call handle_fill
+    //                 for MSHR stuff -> call handle_request
+
+    for (auto q : {std::ref(MSHR)}) {
+      auto [fill_begin, fill_end] =
+          champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+      auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_request(x); });
+      fill_bw -= std::distance(fill_begin, complete_end);
+      q.get().erase(fill_begin, complete_end);
+    }
+
+    for (auto q : {std::ref(inflight_writes)}) {
+      auto [fill_begin, fill_end] =
+          champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+      auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
+      fill_bw -= std::distance(fill_begin, complete_end);
+      q.get().erase(fill_begin, complete_end);
+    }
+    progress += MAX_FILL - fill_bw;
+
   }
 
-  #else
-
-  for (auto q : {std::ref(MSHR),std::ref(inflight_writes)}) {
-    auto [fill_begin, fill_end] =
-        champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
-    auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_fill(x); });
-    fill_bw -= std::distance(fill_begin, complete_end);
-    q.get().erase(fill_begin, complete_end);
-  }  
-
-  #endif
-  progress += MAX_FILL - fill_bw;
 
   // Initiate tag checks
   auto tag_bw = std::max(0ll, std::min<long long>(static_cast<long long>(MAX_TAG), MAX_TAG * HIT_LATENCY - std::size(inflight_tag_check)));
@@ -719,6 +826,7 @@ int CACHE::prefetch_line(uint64_t, uint64_t, uint64_t pf_addr, bool fill_this_le
 
 void CACHE::finish_packet(const response_type& packet)
 {
+  trackAddr(packet.address,"finish_packet (packet returned from lower level)");
   // std::cout<<"Packet address is "<<packet.address<<" and its from is "<<packet.fromL1D<<"\n";
   // exit(1);
   // check MSHR information
