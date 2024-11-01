@@ -43,11 +43,32 @@ namespace champsim
   
   void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
     
-    // if ((addr >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) {
-      // std::cout<<"Call invalidate sp. address from "<<LLC<<"\n";
-    // }    
+    // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
+    //   std :: cout << "Invalidate called on sp. address with LLC = " << LLC << std::endl; 
+    // }
 
     int set = getSet((addr >> LOG2_BLOCK_SIZE));
+
+    // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
+      
+    //   std::cout << "Sp. address found, printing table, tag of guy = " << (addr >> LOG2_BLOCK_SIZE) <<",format=\n<tag>\t<invalid>\t<isInLLC>\t<isInBoth>\n";
+    //   for (size_t i=0; i < numWays; i++) {
+
+    //     std :: cout << table[set][i].tag << "\t" << table[set][i].invalid << "\t" << table[set][i].isInLLC << "\t" << table[set][i].isInBoth << "\n";  
+
+    //   }
+
+    //   std :: cout << "For extras:\n";
+
+    //   for (size_t i=0; i < extras[set].size(); i++) {
+
+    //     std :: cout << extras[set][i].tag << "\t" << extras[set][i].invalid << "\t" << extras[set][i].isInLLC << "\t" << extras[set][i].isInBoth << "\n";  
+
+    //   }
+
+    // }
+
+
     bool found = false;
     for (int i=0; i<numWays; i++) {
       if (table[set][i].tag == (addr >> LOG2_BLOCK_SIZE)) {
@@ -55,6 +76,7 @@ namespace champsim
           // block is being evicted from LLC, check to see if its in L2
           if (table[set][i].isInBoth) {
             // yes, so simply make this false
+            assert(false && "Exclusive hierarchy! Should never be in both!");
             table[set][i].isInBoth = false;
             return;
           }
@@ -63,6 +85,22 @@ namespace champsim
             table[set][i].tag = 0;
             table[set][i].invalid = true;
             found = true;
+            // need to make modifications here
+            for (int j=0; j<extras[set].size(); j++) {
+              if (!extras[set][i].invalid && (extras[set][j].isInLLC)) {
+                table[set][i].tag = extras[set][j].tag;
+                table[set][i].invalid = false;
+                table[set][i].isInBoth = extras[set][j].isInBoth;
+                table[set][i].isInLLC = extras[set][j].isInLLC;
+                
+                extras[set][j].tag = extras[set][(extras[set].size() - 1)].tag;
+                extras[set][j].invalid = extras[set][(extras[set].size() - 1)].invalid;
+                extras[set][j].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
+                extras[set][j].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
+                extras[set].pop_back();
+                return;
+              } 
+            }
           }
           else {
             return;
@@ -72,6 +110,7 @@ namespace champsim
           // block is being evicted from L2, check if its in both
           if (table[set][i].isInBoth) {
             // we need to change iska location to LLC, and make it not be in both
+            assert(false && "exclusive hierarchy!");
             table[set][i].isInLLC = true;
             table[set][i].isInBoth = false;
             return;
@@ -81,6 +120,21 @@ namespace champsim
             table[set][i].tag = 0;
             table[set][i].invalid = true;
             found = true;
+            for (int j=0; j<extras[set].size(); j++) {
+              if (!extras[set][j].invalid && !(extras[set][j].isInLLC)) {
+                table[set][i].tag = extras[set][j].tag;
+                table[set][i].invalid = false;
+                table[set][i].isInBoth = extras[set][j].isInBoth;
+                table[set][i].isInLLC = extras[set][j].isInLLC;
+                
+                extras[set][j].tag = extras[set][(extras[set].size() - 1)].tag;
+                extras[set][j].invalid = extras[set][(extras[set].size() - 1)].invalid;
+                extras[set][j].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
+                extras[set][j].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
+                extras[set].pop_back();
+                return;
+              } 
+            }
           }
           else {
             return;
@@ -88,10 +142,42 @@ namespace champsim
         }
       }  
     }
+
+    for (int i=0; i<extras[set].size(); i++) {
+      if (extras[set][i].tag == (addr >> LOG2_BLOCK_SIZE)) {
+        if (LLC) {
+          if (extras[set][i].isInLLC) {
+            extras[set][i].tag = extras[set][(extras[set].size() - 1)].tag;
+            extras[set][i].invalid = extras[set][(extras[set].size() - 1)].invalid;
+            extras[set][i].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
+            extras[set][i].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
+            extras[set].pop_back();      
+            return;      
+          }
+          else {
+            assert(false && "wtaf bhai");
+          }
+        }
+        else {
+          if (!(extras[set][i].isInBoth) && !(extras[set][i].isInLLC)) {
+            extras[set][i].tag = extras[set][(extras[set].size() - 1)].tag;
+            extras[set][i].invalid = extras[set][(extras[set].size() - 1)].invalid;
+            extras[set][i].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
+            extras[set][i].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
+            extras[set].pop_back();      
+            return;                  
+          }
+          else {
+            assert(false && "bs");
+          }
+        }
+      }
+    }
+
     if (found) {
       return;
     }
-    std::cout<<"Should never reach here!\n";
+    std::cout<<"Should never reach here! Address is " << addr << " LLC = " << LLC << "\n";
     exit(1);
   }
 
@@ -102,6 +188,10 @@ namespace champsim
     // }
 // 
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+
+    // if (cl_addr == (10644144 >> LOG2_BLOCK_SIZE)) {
+    //   std :: cout << "Insert called on sp. address with LLC = " << LLC << std::endl; 
+    // }
 
     int set = getSet(cl_addr);
 
@@ -131,18 +221,45 @@ namespace champsim
       }
     }
     if (invalidWay == -1) {
-      std::cerr<<"What the fuck dheeraj, address is " << addr << ", it was in " << LLC << "\nPrinting set\n";
-      for (int i=0; i<numWays; i++) {
-        std::cout<<table[set][i].tag<<" ";
-      }
-      exit(1);
+      // The following is only for exclusive hierarchies.
+      // if (set == getSet(10644144 >> LOG2_BLOCK_SIZE)) {
+      //   std :: cout << "Sp. Address inserted into extra with llc = " << LLC << std::endl; 
+      // }
+
+      levelPredictorEntry tmp;
+      tmp.invalid = 0;
+      tmp.tag = cl_addr;
+      tmp.isInBoth = false;
+      tmp.isInLLC = LLC;
+      extras[set].push_back(tmp);
+      return 0;
+
     }
     table[set][invalidWay].invalid = false;
     table[set][invalidWay].isInLLC = LLC;
     table[set][invalidWay].tag = cl_addr;
     // return 0 if block came from DRAM
-    return 0;
 
+    // if (cl_addr == (10644144 >> LOG2_BLOCK_SIZE)) {
+      
+    //   std::cout << "Sp. address found, printing table, tag of guy = " << cl_addr <<",format=\n<tag>\t<invalid>\t<isInLLC>\t<isInBoth>\n";
+    //   for (size_t i=0; i < numWays; i++) {
+
+    //     std :: cout << table[set][i].tag << "\t" << table[set][i].invalid << "\t" << table[set][i].isInLLC << "\t" << table[set][i].isInBoth << "\n";  
+
+    //   }
+
+    //   std :: cout << "For extras:\n";
+
+    //   for (size_t i=0; i < extras[set].size(); i++) {
+
+    //     std :: cout << extras[set][i].tag << "\t" << extras[set][i].invalid << "\t" << extras[set][i].isInLLC << "\t" << extras[set][i].isInBoth << "\n";  
+
+    //   }
+
+    // }
+
+    return 0;
   }
 
   int operable::levelPredictor::wherePresent(uint64_t addr) {
@@ -154,6 +271,16 @@ namespace champsim
     for (int i=0; i<numWays; i++) {
       if (!table[set][i].invalid && table[set][i].tag == cl_addr) {
         if (table[set][i].isInLLC) {
+          return 2;
+        }
+        else {
+          return 1;
+        }
+      }
+    }
+    for (int i=0; i<extras[set].size(); i++) {
+      if (!extras[set][i].invalid && extras[set][i].tag == cl_addr) {
+        if (extras[set][i].isInLLC) {
           return 2;
         }
         else {

@@ -16,7 +16,7 @@
 
 #include "cache.h"
 
-#define USE_LEVEL_PREDICTOR 1
+// #define USE_LEVEL_PREDICTOR 1
 
 /*
 
@@ -612,14 +612,14 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 
 void CACHE::trackAddr (uint64_t addr, std::string caller) {
 
-  if (NAME[NAME.length() - 1] == 'B') {
-    return;
-  }
-  if ((caller.compare("try_hit") == 0) && ((NAME[NAME.length() - 1] == 'D') || (NAME[NAME.length() - 1] == 'I'))) {
-    return;
-  }
+  // if (NAME[NAME.length() - 1] == 'B') {
+  //   return;
+  // }
+  // if ((caller.compare("try_hit") == 0) && ((NAME[NAME.length() - 1] == 'D') || (NAME[NAME.length() - 1] == 'I'))) {
+  //   return;
+  // }
 
-  // if ((this->lp[0]->getSet((addr >> LOG2_BLOCK_SIZE)) == (this->lp[0]->getSet((4156048 >> LOG2_BLOCK_SIZE))))) {
+  // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
   //   std :: cout << "Found special set, address is "<<addr<<", caller is "<< caller << " and Name is " << NAME << std::endl;
   // }
 
@@ -1057,6 +1057,7 @@ void CACHE::initialize()
       assert(((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)%(numSet)) == 0);
       int numWays = ((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)/(numSet));
       tmp->table = new levelPredictorEntry*[numSet];
+      tmp->extras = new std::vector<levelPredictorEntry> [numSet];
       for (int i=0; i<numSet; i++) {
         tmp->table[i] = new levelPredictorEntry[numWays];
       }

@@ -41,6 +41,7 @@ public:
   class levelPredictor {
     public:
     levelPredictorEntry** table = nullptr;
+    std::vector<levelPredictorEntry> *extras;
     champsim::channel* l1DToLP = nullptr;
     champsim::channel* l1IToLP = nullptr;
     champsim::channel* l2ToLP = nullptr;
