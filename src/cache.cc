@@ -23,8 +23,6 @@
 #include <cmath>
 #include <iomanip>
 #include <numeric>
-#include <fmt/core.h>
-#include <fmt/ranges.h>
 
 #include "champsim.h"
 #include "champsim_constants.h"
@@ -33,18 +31,21 @@
 #include "util/algorithm.h"
 #include "util/span.h"
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 
-std::vector<champsim::operable::levelPredictor*> CACHE::lp(NUM_CPUS,new champsim::operable::levelPredictor);
+std::vector<champsim::operable::levelPredictor*> CACHE::lp(NUM_CPUS, new champsim::operable::levelPredictor);
 
 CACHE::tag_lookup_type::tag_lookup_type(request_type req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me), fromL1D(req.fromL1D)
+      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),
+      fromL1D(req.fromL1D)
 {
 }
 
 CACHE::mshr_type::mshr_type(tag_lookup_type req, uint64_t cycle)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return), fromL1D(req.fromL1D)
+      type(req.type), prefetch_from_this(req.prefetch_from_this), cycle_enqueued(cycle), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),
+      fromL1D(req.fromL1D)
 {
 }
 
@@ -69,9 +70,13 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
 
   if constexpr (champsim::debug_print) {
     if (successor.type == access_type::PREFETCH) {
-      fmt::print("[MSHR] {} address {:#x} type: {} into address {:#x} type: {} event: {}\n", __func__, successor.address, access_type_names.at(champsim::to_underlying(successor.type)), predecessor.address, access_type_names.at(champsim::to_underlying(successor.type)), retval.event_cycle);
+      fmt::print("[MSHR] {} address {:#x} type: {} into address {:#x} type: {} event: {}\n", __func__, successor.address,
+                 access_type_names.at(champsim::to_underlying(successor.type)), predecessor.address,
+                 access_type_names.at(champsim::to_underlying(successor.type)), retval.event_cycle);
     } else {
-      fmt::print("[MSHR] {} address {:#x} type: {} into address {:#x} type: {} event: {}\n", __func__, predecessor.address, access_type_names.at(champsim::to_underlying(predecessor.type)), successor.address, access_type_names.at(champsim::to_underlying(successor.type)), retval.event_cycle);
+      fmt::print("[MSHR] {} address {:#x} type: {} into address {:#x} type: {} event: {}\n", __func__, predecessor.address,
+                 access_type_names.at(champsim::to_underlying(predecessor.type)), successor.address,
+                 access_type_names.at(champsim::to_underlying(successor.type)), retval.event_cycle);
     }
   }
 
@@ -102,10 +107,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   const auto way_idx = static_cast<std::size_t>(std::distance(set_begin, way)); // cast protected by earlier assertion
 
   if constexpr (champsim::debug_print) {
-    fmt::print(
-        "[{}] {} instr_id: {} address: {:#x} v_address: {:#x} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n",
-        NAME, __func__, fill_mshr.instr_id, fill_mshr.address, fill_mshr.v_address, get_set_index(fill_mshr.address), way_idx,
-        access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.pf_metadata, fill_mshr.cycle_enqueued, current_cycle);
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME,
+               __func__, fill_mshr.instr_id, fill_mshr.address, fill_mshr.v_address, get_set_index(fill_mshr.address), way_idx,
+               access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.pf_metadata, fill_mshr.cycle_enqueued, current_cycle);
   }
 
   bool success = true;
@@ -126,27 +130,26 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       writeback_packet.fromL1D = fill_mshr.fromL1D;
 
       if constexpr (champsim::debug_print) {
-        fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME,
-            __func__, writeback_packet.address, writeback_packet.v_address, fill_mshr.pf_metadata);
+        fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address,
+                   writeback_packet.v_address, fill_mshr.pf_metadata);
       }
 
       success = lower_level->add_wq(writeback_packet);
     }
-    #ifdef USE_LEVEL_PREDICTOR
+#ifdef USE_LEVEL_PREDICTOR
     if (way->valid && NAME[NAME.length() - 1] == 'C') {
       // only for L2, LLC, update table
       if (NAME.compare("LLC") == 0) {
-        // something  
-        this->lp[cpu]->invalidateEntry(way->address,true);
-      }
-      else  {
+        // something
+        this->lp[cpu]->invalidateEntry(way->address, true);
+      } else {
         // if ((way->address >> LOG2_BLOCK_SIZE) == ((11726288 >> LOG2_BLOCK_SIZE))) {
-          // std::cout<<"Evicting from L2 :D\n";
+        // std::cout<<"Evicting from L2 :D\n";
         // }
-        this->lp[cpu]->invalidateEntry(way->address,false);
+        this->lp[cpu]->invalidateEntry(way->address, false);
       }
     }
-    #endif
+#endif
 
     if (success) {
       auto evicting_address = (ever_seen_data ? way->address : way->v_address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
@@ -173,92 +176,87 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         impl_prefetcher_cache_fill(pkt_address, get_set_index(fill_mshr.address), way_idx, fill_mshr.type == access_type::PREFETCH, 0, metadata_thru);
     impl_update_replacement_state(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, fill_mshr.address, fill_mshr.ip, 0,
                                   champsim::to_underlying(fill_mshr.type), false);
-
   }
 
   if (success) {
     // COLLECT STATS
     sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
 
-    response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, metadata_thru, fill_mshr.instr_depend_on_me, fill_mshr.fromL1D, fill_mshr.type, fill_mshr.instr_id, fill_mshr.ip};
+    response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data,     metadata_thru, fill_mshr.instr_depend_on_me,
+                           fill_mshr.fromL1D, fill_mshr.type,      fill_mshr.instr_id, fill_mshr.ip};
     for (auto ret : fill_mshr.to_return)
       ret->push_back(response);
 
-    #ifdef USE_LEVEL_PREDICTOR
-      if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
-        return success;
-      }
-      bool LLC = (NAME.compare("LLC") == 0);
-      int whereDidIComeFrom = this->lp[cpu]->insert(fill_mshr.address,LLC);
-      if (LLC && whereDidIComeFrom == 0) {
-        // we came from DRAM, we should add this block to some queu
-        request_type writeback_packet;
+#ifdef USE_LEVEL_PREDICTOR
+    if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
+      return success;
+    }
+    bool LLC = (NAME.compare("LLC") == 0);
+    int whereDidIComeFrom = this->lp[cpu]->insert(fill_mshr.address, LLC);
+    if (LLC && whereDidIComeFrom == 0) {
+      // we came from DRAM, we should add this block to some queu
+      request_type writeback_packet;
 
-        writeback_packet.cpu = fill_mshr.cpu;
-        writeback_packet.address = fill_mshr.address;
-        writeback_packet.data = fill_mshr.data;
-        writeback_packet.instr_id = fill_mshr.instr_id;
-        writeback_packet.ip = fill_mshr.ip;
-        writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
-        writeback_packet.pf_metadata = fill_mshr.pf_metadata;
-        writeback_packet.response_requested = true;
-        writeback_packet.fromL1D = fill_mshr.fromL1D;
+      writeback_packet.cpu = fill_mshr.cpu;
+      writeback_packet.address = fill_mshr.address;
+      writeback_packet.data = fill_mshr.data;
+      writeback_packet.instr_id = fill_mshr.instr_id;
+      writeback_packet.ip = fill_mshr.ip;
+      writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
+      writeback_packet.pf_metadata = fill_mshr.pf_metadata;
+      writeback_packet.response_requested = true;
+      writeback_packet.fromL1D = fill_mshr.fromL1D;
+      // if (fill_mshr.type == access_type::WRITE) {
+      // this->upper_levels[0]->add_wq(writeback_packet);
+      // }/
+      // if (fill_mshr.type == access_type::PREFETCH) {
+      // this->upper_levels[0]->add_pq(writeback_packet);
+      // }
+      // else {
+      this->upper_levels[0]->add_rq(writeback_packet);
+      // }
+
+    } else if (LLC && whereDidIComeFrom == 1) {
+      ;
+    } else if (!LLC && whereDidIComeFrom == 2) {
+      // coming from LLC into L2
+      request_type writeback_packet;
+
+      writeback_packet.cpu = fill_mshr.cpu;
+      writeback_packet.address = fill_mshr.address;
+      writeback_packet.data = fill_mshr.data;
+      writeback_packet.instr_id = fill_mshr.instr_id;
+      writeback_packet.ip = fill_mshr.ip;
+      writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
+      writeback_packet.pf_metadata = fill_mshr.pf_metadata;
+      writeback_packet.response_requested = true;
+      writeback_packet.fromL1D = fill_mshr.fromL1D;
+      // how to tell whether to go to L1D or to L1I?
+      if (fill_mshr.fromL1D) {
         // if (fill_mshr.type == access_type::WRITE) {
-          // this->upper_levels[0]->add_wq(writeback_packet);
-        // }/
-        // if (fill_mshr.type == access_type::PREFETCH) {
-          // this->upper_levels[0]->add_pq(writeback_packet);
+        // this->lp[cpu]->l1DToL2->add_wq(writeback_packet);
+        // }
+        // else if (fill_mshr.type == access_type::PREFETCH) {
+        // this->lp[cpu]->l1DToL2->add_pq(writeback_packet);
         // }
         // else {
-        this->upper_levels[0]->add_rq(writeback_packet);
+        this->lp[cpu]->l1DToL2->add_rq(writeback_packet);
         // }
-
+      } else {
+        // if (fill_mshr.type == access_type::WRITE) {
+        // this->lp[cpu]->l1IToL2->add_wq(writeback_packet);
+        // }
+        // else if (fill_mshr.type == access_type::PREFETCH) {
+        // this->lp[cpu]->l1IToL2->add_pq(writeback_packet);
+        // }
+        // else {
+        this->lp[cpu]->l1IToL2->add_rq(writeback_packet);
+        // }
       }
-      else if (LLC && whereDidIComeFrom == 1) {
-        ;
-      }
-      else if (!LLC && whereDidIComeFrom == 2) {
-        // coming from LLC into L2
-        request_type writeback_packet;
+    }
 
-        writeback_packet.cpu = fill_mshr.cpu;
-        writeback_packet.address = fill_mshr.address;
-        writeback_packet.data = fill_mshr.data;
-        writeback_packet.instr_id = fill_mshr.instr_id;
-        writeback_packet.ip = fill_mshr.ip;
-        writeback_packet.type = (fill_mshr.type == access_type::WRITE) ? access_type::RFO : fill_mshr.type;
-        writeback_packet.pf_metadata = fill_mshr.pf_metadata;
-        writeback_packet.response_requested = true;
-        writeback_packet.fromL1D = fill_mshr.fromL1D;
-        // how to tell whether to go to L1D or to L1I?
-        if (fill_mshr.fromL1D) {
-          // if (fill_mshr.type == access_type::WRITE) {
-            // this->lp[cpu]->l1DToL2->add_wq(writeback_packet);
-          // }
-          // else if (fill_mshr.type == access_type::PREFETCH) {
-            // this->lp[cpu]->l1DToL2->add_pq(writeback_packet);
-          // }
-          // else {
-            this->lp[cpu]->l1DToL2->add_rq(writeback_packet);
-          // }
-        }
-        else {
-          // if (fill_mshr.type == access_type::WRITE) {
-            // this->lp[cpu]->l1IToL2->add_wq(writeback_packet);
-          // }
-          // else if (fill_mshr.type == access_type::PREFETCH) {
-            // this->lp[cpu]->l1IToL2->add_pq(writeback_packet);
-          // }
-          // else {
-            this->lp[cpu]->l1IToL2->add_rq(writeback_packet);
-          // }        
-        }
-      }
-
-    #endif
-
+#endif
   }
-
 
   return success;
 }
@@ -274,9 +272,9 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} data: {:#x} set: {} way: {} ({}) type: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
-               handle_pkt.address, handle_pkt.v_address, handle_pkt.data, get_set_index(handle_pkt.address), std::distance(set_begin, way), hit ? "HIT" : "MISS",
-               access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_cycle);
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} data: {:#x} set: {} way: {} ({}) type: {} cycle: {}\n", NAME, __func__,
+               handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address, handle_pkt.data, get_set_index(handle_pkt.address), std::distance(set_begin, way),
+               hit ? "HIT" : "MISS", access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_cycle);
   }
 
   // update prefetcher on load instructions and prefetches from upper levels
@@ -294,7 +292,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), way_idx, way->address, handle_pkt.ip, 0,
                                   champsim::to_underlying(handle_pkt.type), true);
 
-    response_type response{handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me, handle_pkt.fromL1D, handle_pkt.type, handle_pkt.instr_id, handle_pkt.ip};
+    response_type response{handle_pkt.address, handle_pkt.v_address, way->data,           metadata_thru, handle_pkt.instr_depend_on_me,
+                           handle_pkt.fromL1D, handle_pkt.type,      handle_pkt.instr_id, handle_pkt.ip};
     for (auto ret : handle_pkt.to_return)
       ret->push_back(response);
 
@@ -314,12 +313,12 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 {
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__,
-               handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address,
-               access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this, current_cycle);
+    fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+               handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
+               current_cycle);
   }
   // if ((handle_pkt.address >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE) && (NAME.compare("cpu0_L1D") == 0)) {
-    // std::cout<<"Ok sp address detected, what happens to it"<<std::endl;
+  // std::cout<<"Ok sp address detected, what happens to it"<<std::endl;
   // }
   mshr_type to_allocate{handle_pkt, current_cycle};
 
@@ -346,16 +345,16 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         fmt::print("[{}] {} MSHR full\n", NAME, __func__);
       }
       // if (handle_pkt.address == 1137648) {
-        // std::cout<<"Ye bakchodi hai kya?\n";
+      // std::cout<<"Ye bakchodi hai kya?\n";
       // }
-      return false;  // TODO should we allow prefetches anyway if they will not be filled to this level?
+      return false; // TODO should we allow prefetches anyway if they will not be filled to this level?
     }
 
     request_type fwd_pkt;
 
-    #ifdef USE_LEVEL_PREDICTOR
-      fwd_pkt.fromL1D = (NAME[NAME.length() - 1] == 'D');
-    #endif
+#ifdef USE_LEVEL_PREDICTOR
+    fwd_pkt.fromL1D = (NAME[NAME.length() - 1] == 'D');
+#endif
 
     fwd_pkt.asid[0] = handle_pkt.asid[0];
     fwd_pkt.asid[1] = handle_pkt.asid[1];
@@ -373,7 +372,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     fwd_pkt.response_requested = (!handle_pkt.prefetch_from_this || !handle_pkt.skip_fill);
 
     bool success;
-    #ifdef USE_LEVEL_PREDICTOR
+#ifdef USE_LEVEL_PREDICTOR
     // first query the block.
     if (this->NAME[NAME.length() - 1] == 'D' || this->NAME[NAME.length() - 1] == 'I') {
       // handle misses using level predictor only for L1D or L1I
@@ -390,64 +389,54 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       //   }
       // }
 
-
       if (whereToLook == 0) {
         // go to DRAM
         if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
           success = this->lp[cpu]->llcToDRAM->add_rq(fwd_pkt);
-        }
-        else{
+        } else {
           success = this->lp[cpu]->llcToDRAM->add_pq(fwd_pkt);
         }
-      }
-      else if (whereToLook == 1) {
+      } else if (whereToLook == 1) {
         // go to L2
         if (this->NAME[NAME.length() - 1] == 'D') {
           if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
             success = this->lp[cpu]->l1DToL2->add_rq(fwd_pkt);
-          }
-          else{
+          } else {
             success = this->lp[cpu]->l1DToL2->add_pq(fwd_pkt);
-          }            
-        }
-        else {
+          }
+        } else {
           if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
             success = this->lp[cpu]->l1IToL2->add_rq(fwd_pkt);
-          }
-          else{
+          } else {
             success = this->lp[cpu]->l1IToL2->add_pq(fwd_pkt);
-          }              
+          }
         }
-      }
-      else {
+      } else {
         // go to LLC
         if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
           success = this->lp[cpu]->l2ToLLC->add_rq(fwd_pkt);
-        }
-        else{
+        } else {
           success = this->lp[cpu]->l2ToLLC->add_pq(fwd_pkt);
-        }                
+        }
       }
-    }
-    else {
+    } else {
       // if (NAME[NAME.length() - 1] == 'C') {
-        // std::cout<<"This should never happen! Address is "<<handle_pkt.address<<" I am "<<NAME<<"\n";
+      // std::cout<<"This should never happen! Address is "<<handle_pkt.address<<" I am "<<NAME<<"\n";
       // }
       if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH)
         success = lower_level->add_rq(fwd_pkt);
       else
-        success = lower_level->add_pq(fwd_pkt);      
+        success = lower_level->add_pq(fwd_pkt);
     }
 
-    
-    #else
+#else
 
     if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH)
       success = lower_level->add_rq(fwd_pkt);
     else
       success = lower_level->add_pq(fwd_pkt);
-    
-    #endif
+
+#endif
 
     if (!success) {
       if constexpr (champsim::debug_print) {
@@ -479,7 +468,7 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 
   inflight_writes.emplace_back(handle_pkt, current_cycle);
   inflight_writes.back().event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
-    
+
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
   return true;
@@ -498,8 +487,9 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
     }
 
     if constexpr (champsim::debug_print) {
-      fmt::print("[TAG] initiate_tag_check instr_id: {} address: {:#x} v_address: {:#x} type: {} response_requested: {} event: {}\n", retval.instr_id, retval.address,
-                 retval.v_address, access_type_names.at(champsim::to_underlying(retval.type)), !std::empty(retval.to_return), retval.event_cycle);
+      fmt::print("[TAG] initiate_tag_check instr_id: {} address: {:#x} v_address: {:#x} type: {} response_requested: {} event: {}\n", retval.instr_id,
+                 retval.address, retval.v_address, access_type_names.at(champsim::to_underlying(retval.type)), !std::empty(retval.to_return),
+                 retval.event_cycle);
     }
 
     return retval;
@@ -548,13 +538,15 @@ long CACHE::operate()
   std::vector<long long> channels_bandwidth_consumed{};
   for (auto* ul : upper_levels) {
     for (auto q : {std::ref(ul->WQ), std::ref(ul->RQ), std::ref(ul->PQ)}) {
-      auto bandwidth_consumed = champsim::transform_while_n(q.get(), std::back_inserter(inflight_tag_check), tag_bw, can_translate, initiate_tag_check<true>(ul));
+      auto bandwidth_consumed =
+          champsim::transform_while_n(q.get(), std::back_inserter(inflight_tag_check), tag_bw, can_translate, initiate_tag_check<true>(ul));
       channels_bandwidth_consumed.push_back(bandwidth_consumed);
       tag_bw -= bandwidth_consumed;
       progress += bandwidth_consumed;
     }
   }
-  auto pq_bandwidth_consumed = champsim::transform_while_n(internal_PQ, std::back_inserter(inflight_tag_check), tag_bw, can_translate, initiate_tag_check<false>());
+  auto pq_bandwidth_consumed =
+      champsim::transform_while_n(internal_PQ, std::back_inserter(inflight_tag_check), tag_bw, can_translate, initiate_tag_check<false>());
   tag_bw -= pq_bandwidth_consumed;
   progress += pq_bandwidth_consumed;
 
@@ -562,9 +554,8 @@ long CACHE::operate()
   issue_translation();
 
   // Find entries that would be ready except that they have not finished translation, move them to the stash
-  auto [last_not_missed, stash_end] =
-      champsim::extract_if(std::begin(inflight_tag_check), std::end(inflight_tag_check), std::back_inserter(translation_stash),
-                           [cycle = current_cycle](const auto& x) { return x.event_cycle < cycle && !x.is_translated; });
+  auto [last_not_missed, stash_end] = champsim::extract_if(std::begin(inflight_tag_check), std::end(inflight_tag_check), std::back_inserter(translation_stash),
+                                                           [cycle = current_cycle](const auto& x) { return x.event_cycle < cycle && !x.is_translated; });
   progress += std::distance(last_not_missed, std::end(inflight_tag_check));
   inflight_tag_check.erase(last_not_missed, std::end(inflight_tag_check));
 
@@ -591,10 +582,10 @@ long CACHE::operate()
   impl_prefetcher_cycle_operate();
 
   if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} cycle completed: {} tags checked: {} remaining: {} stash consumed: {} remaining: {} channel consumed: {} pq consumed {} unused consume bw {}\n", NAME, __func__, current_cycle,
-        tag_bw_consumed, std::size(inflight_tag_check),
-        stash_bandwidth_consumed, std::size(translation_stash),
-        channels_bandwidth_consumed, pq_bandwidth_consumed, tag_bw);
+    fmt::print("[{}] {} cycle completed: {} tags checked: {} remaining: {} stash consumed: {} remaining: {} channel consumed: {} pq consumed {} unused consume "
+               "bw {}\n",
+               NAME, __func__, current_cycle, tag_bw_consumed, std::size(inflight_tag_check), stash_bandwidth_consumed, std::size(translation_stash),
+               channels_bandwidth_consumed, pq_bandwidth_consumed, tag_bw);
   }
 
   return progress;
@@ -688,25 +679,24 @@ void CACHE::finish_packet(const response_type& packet)
 
   // sanity check
   if (mshr_entry == MSHR.end()) {
-      request_type t;
-      t.address = packet.address;
-      t.v_address = packet.v_address;
-      t.data = packet.data;
-      t.instr_depend_on_me = packet.instr_depend_on_me;
-      t.pf_metadata = packet.pf_metadata;
-      t.cpu = cpu;
-      t.type = packet.type;
-      t.instr_id = packet.instr_id;
-      t.ip = packet.ip;
-      t.fromL1D = packet.fromL1D;
-      tag_lookup_type tmp(t);
+    request_type t;
+    t.address = packet.address;
+    t.v_address = packet.v_address;
+    t.data = packet.data;
+    t.instr_depend_on_me = packet.instr_depend_on_me;
+    t.pf_metadata = packet.pf_metadata;
+    t.cpu = cpu;
+    t.type = packet.type;
+    t.instr_id = packet.instr_id;
+    t.ip = packet.ip;
+    t.fromL1D = packet.fromL1D;
+    tag_lookup_type tmp(t);
 
-      MSHR.emplace_back(tmp,current_cycle);
-      MSHR.back().pf_metadata = packet.pf_metadata;
-      mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR),
-                                 [match = packet.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
-      first_unreturned = std::find_if(MSHR.begin(), MSHR.end(), [](auto x) { return x.event_cycle == std::numeric_limits<uint64_t>::max(); });
-
+    MSHR.emplace_back(tmp, current_cycle);
+    MSHR.back().pf_metadata = packet.pf_metadata;
+    mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR),
+                              [match = packet.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
+    first_unreturned = std::find_if(MSHR.begin(), MSHR.end(), [](auto x) { return x.event_cycle == std::numeric_limits<uint64_t>::max(); });
   }
 
   // MSHR holds the most updated information about this request
@@ -775,8 +765,8 @@ void CACHE::issue_translation()
       q_entry.translate_issued = this->lower_translate->add_rq(fwd_pkt);
       if constexpr (champsim::debug_print) {
         if (q_entry.translate_issued) {
-          fmt::print("[TRANSLATE] do_issue_translation instr_id: {} paddr: {:#x} vaddr: {:#x} cycle: {}\n", q_entry.instr_id, q_entry.address, q_entry.v_address,
-                     access_type_names.at(champsim::to_underlying(q_entry.type)));
+          fmt::print("[TRANSLATE] do_issue_translation instr_id: {} paddr: {:#x} vaddr: {:#x} cycle: {}\n", q_entry.instr_id, q_entry.address,
+                     q_entry.v_address, access_type_names.at(champsim::to_underlying(q_entry.type)));
         }
       }
     }
@@ -878,13 +868,13 @@ void CACHE::initialize()
   impl_initialize_replacement();
   if (!this->isConstructed) {
     // std::cout<<"Constructing...\n";
-    for (int i=0; i<NUM_CPUS; i++) {
+    for (int i = 0; i < NUM_CPUS; i++) {
       this->lp[i] = new levelPredictor;
     }
     this->isConstructed = true;
   }
   if (NAME[NAME.length() - 1] == 'D') {
-    // L1D 
+    // L1D
     this->lp[cpu]->l1DToLP = new champsim::channel;
     this->lp[cpu]->l1DToL2 = this->lower_level;
   }
@@ -905,16 +895,15 @@ void CACHE::initialize()
 
       // we can fully initialise structure
       levelPredictor* tmp = this->lp[cpu];
-      int numSet = std::min(tmp->l2NumSets,tmp->llcNumSets);
-      assert(((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)%(numSet)) == 0);
-      int numWays = ((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)/(numSet));
+      int numSet = std::min(tmp->l2NumSets, tmp->llcNumSets);
+      assert(((tmp->l2NumSets * tmp->l2NumWays + tmp->llcNumSets * tmp->llcNumWays) % (numSet)) == 0);
+      int numWays = ((tmp->l2NumSets * tmp->l2NumWays + tmp->llcNumSets * tmp->llcNumWays) / (numSet));
       tmp->table = new levelPredictorEntry*[numSet];
-      for (int i=0; i<numSet; i++) {
+      for (int i = 0; i < numSet; i++) {
         tmp->table[i] = new levelPredictorEntry[numWays];
       }
       tmp->indexingBits = log2(numSet);
       tmp->numWays = numWays;
-
     }
   }
   if (NAME.compare("LLC") == 0) {
@@ -929,18 +918,16 @@ void CACHE::initialize()
 
       // we can fully initialise structure
       levelPredictor* tmp = this->lp[cpu];
-      int numSet = std::min(tmp->l2NumSets,tmp->llcNumSets);
-      assert(((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)%(numSet)) == 0);
-      int numWays = ((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)/(numSet));
+      int numSet = std::min(tmp->l2NumSets, tmp->llcNumSets);
+      assert(((tmp->l2NumSets * tmp->l2NumWays + tmp->llcNumSets * tmp->llcNumWays) % (numSet)) == 0);
+      int numWays = ((tmp->l2NumSets * tmp->l2NumWays + tmp->llcNumSets * tmp->llcNumWays) / (numSet));
       tmp->table = new levelPredictorEntry*[numSet];
-      for (int i=0; i<numSet; i++) {
+      for (int i = 0; i < numSet; i++) {
         tmp->table[i] = new levelPredictorEntry[numWays];
       }
       tmp->indexingBits = log2(numSet);
       tmp->numWays = numWays;
-
     }
-
   }
 }
 
@@ -965,8 +952,8 @@ void CACHE::end_phase(unsigned finished_cpu)
 {
   auto total_miss = 0ull;
   for (auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
-    total_miss =
-        std::accumulate(std::begin(sim_stats.misses.at(champsim::to_underlying(type))), std::end(sim_stats.misses.at(champsim::to_underlying(type))), total_miss);
+    total_miss = std::accumulate(std::begin(sim_stats.misses.at(champsim::to_underlying(type))), std::end(sim_stats.misses.at(champsim::to_underlying(type))),
+                                 total_miss);
   }
   sim_stats.avg_miss_latency = std::ceil(sim_stats.total_miss_latency) / std::ceil(total_miss);
 
@@ -1014,8 +1001,7 @@ void CACHE::print_deadlock()
 {
   std::string_view mshr_write{"instr_id: {} address: {:#x} v_addr: {:#x} type: {} event: {}"};
   auto mshr_pack = [](const auto& entry) {
-    return std::tuple{entry.instr_id, entry.address, entry.v_address, access_type_names.at(champsim::to_underlying(entry.type)),
-      entry.event_cycle};
+    return std::tuple{entry.instr_id, entry.address, entry.v_address, access_type_names.at(champsim::to_underlying(entry.type)), entry.event_cycle};
   };
 
   std::string_view tag_check_write{"instr_id: {} address: {:#x} v_addr: {:#x} is_translated: {} translate_issued: {} event_cycle: {}"};

@@ -25,11 +25,11 @@
 #include <array>
 #include <bitset>
 #include <deque>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <iostream>
 
 #include "champsim.h"
 #include "champsim_constants.h"
@@ -71,7 +71,6 @@ class CACHE : public champsim::operable
     uint64_t data;
     uint64_t ip;
     uint64_t instr_id;
-    
 
     uint32_t pf_metadata;
     uint32_t cpu;
@@ -81,7 +80,7 @@ class CACHE : public champsim::operable
     bool skip_fill;
     bool is_translated;
     bool translate_issued = false;
-    
+
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 
     uint64_t event_cycle = std::numeric_limits<uint64_t>::max();
@@ -101,7 +100,6 @@ class CACHE : public champsim::operable
     uint64_t data;
     uint64_t ip;
     uint64_t instr_id;
-
 
     uint32_t pf_metadata;
     uint32_t cpu;
@@ -162,7 +160,7 @@ class CACHE : public champsim::operable
   std::deque<tag_lookup_type> translation_stash{};
 
 public:
-static std::vector<operable::levelPredictor*> lp;  // Declaration
+  static std::vector<operable::levelPredictor*> lp; // Declaration
   std::vector<channel_type*> upper_levels;
   channel_type* lower_level;
   channel_type* lower_translate;
