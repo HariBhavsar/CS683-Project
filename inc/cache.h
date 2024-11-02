@@ -195,6 +195,10 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
 
   void initialize() override final;
   void begin_phase() override final;
+
+  uint64_t invalidate_entry(uint64_t inval_addr) override final;
+  void purgeFromInflightWrites(uint64_t addr) override final;
+  void purgeFromWriteQueue(uint64_t addr) override final;
   void end_phase(unsigned cpu) override final;
 
   [[deprecated("get_occupancy() returns 0 for every input except 0 (MSHR). Use get_mshr_occupancy() instead.")]] std::size_t get_occupancy(uint8_t queue_type,
@@ -221,7 +225,6 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
   [[deprecated("Use get_set_index() instead.")]] uint64_t get_set(uint64_t address) const;
   [[deprecated("This function should not be used to access the blocks directly.")]] uint64_t get_way(uint64_t address, uint64_t set) const;
 
-  uint64_t invalidate_entry(uint64_t inval_addr);
   int prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);
 
   [[deprecated("Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] int

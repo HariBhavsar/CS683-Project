@@ -76,6 +76,7 @@ namespace champsim
           // block is being evicted from LLC, check to see if its in L2
           if (table[set][i].isInBoth) {
             // yes, so simply make this false
+            std :: cout << "addr is " << addr << " and LLC is " << LLC << std::endl;
             assert(false && "Exclusive hierarchy! Should never be in both!");
             table[set][i].isInBoth = false;
             return;
@@ -110,6 +111,7 @@ namespace champsim
           // block is being evicted from L2, check if its in both
           if (table[set][i].isInBoth) {
             // we need to change iska location to LLC, and make it not be in both
+            std :: cout << "addr is " << addr << " and LLC is " << LLC << std::endl;
             assert(false && "exclusive hierarchy!");
             table[set][i].isInLLC = true;
             table[set][i].isInBoth = false;
@@ -177,8 +179,9 @@ namespace champsim
     if (found) {
       return;
     }
-    std::cout<<"Should never reach here! Address is " << addr << " LLC = " << LLC << "\n";
-    exit(1);
+    return;
+    // std::cout<<"Should never reach here! Address is " << addr << " LLC = " << LLC << "\n";
+    // exit(1);
   }
 
   int operable::levelPredictor::insert(uint64_t addr, bool LLC) {

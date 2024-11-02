@@ -217,6 +217,40 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     // COLLECT STATS
     sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
 
+    if (NAME[NAME.length() - 2] == '1') {
+      bool isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
+      if (!isValid) {
+        trackAddr(fill_mshr.address,"is not valid!");
+        if (this->lp[cpu]->wherePresent(fill_mshr.address) == 2) {
+          std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
+          exit(1);
+        }
+        else {
+          
+          this->lp[cpu]->l2C->invalidate_entry(fill_mshr.address);
+          // also check llc's wq and inflight_writes queue. Will need to get rid of all packets there too!
+          // this is easier said than done man :(
+          this->lp[cpu]->l2C->purgeFromInflightWrites(fill_mshr.address);
+          this->lp[cpu]->l2C->purgeFromWriteQueue(fill_mshr.address);
+          this->lp[cpu]->invalidateEntry(fill_mshr.address,false);
+          // lets also purge from our lower level?
+
+          std::deque<champsim::channel::request_type>::iterator tmp;
+          bool found = false;
+          for (auto it = lower_level->WQ.begin(); it != lower_level->WQ.end() ; it++) {
+            if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+              tmp = it;
+              found = true;
+            }
+          }
+          if (found)
+          lower_level->WQ.erase(tmp);
+        }
+        isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
+      }
+      assert(isValid);
+    }
+
     response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, metadata_thru, fill_mshr.instr_depend_on_me, fill_mshr.fromL1D, fill_mshr.type, fill_mshr.instr_id, fill_mshr.ip};
     for (auto ret : fill_mshr.to_return)
       ret->push_back(response);
@@ -225,6 +259,46 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 
 
   return success;
+}
+
+void CACHE::purgeFromInflightWrites (uint64_t addr) {
+
+
+  std::deque<CACHE::mshr_type>::iterator tmp;
+  bool found = false;
+  for (auto it = inflight_writes.begin(); it != inflight_writes.end() ; it++) {
+    if ((it->address >> LOG2_BLOCK_SIZE) == (addr >> LOG2_BLOCK_SIZE)) {
+      tmp = it;
+      found = true;
+    }
+  }
+  if (found) {
+    inflight_writes.erase(tmp);
+  }
+
+  if (addr == 4571532) {
+    std :: cout << "Purge from inflight writes called on sp. addr, I am " << NAME << " found is " << found << std::endl;
+  }
+
+}
+
+void CACHE::purgeFromWriteQueue (uint64_t addr) {
+
+  std::deque<champsim::channel::request_type>::iterator tmp;
+  bool found = false;
+  for (auto it = upper_levels[0]->WQ.begin(); it != upper_levels[0]->WQ.end() ; it++) {
+    if ((it->address >> LOG2_BLOCK_SIZE) == (addr >> LOG2_BLOCK_SIZE)) {
+      tmp = it;
+      found = true;
+    }
+  }
+  if (found)
+  upper_levels[0]->WQ.erase(tmp);
+
+    if (addr == 4571532) {
+    std :: cout << "Purge from WQ called on sp. addr, I am " << NAME << " found is " << found << std::endl;
+  }
+
 }
 
 
@@ -247,7 +321,56 @@ bool CACHE::handle_request(const mshr_type& fill_mshr)
 
   bool isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
   if (!isValid) {
-    std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
+    trackAddr(fill_mshr.address,"is not valid!");
+    if (this->lp[cpu]->wherePresent(fill_mshr.address) == 1) {
+      std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
+      exit(1);
+    }
+    else {
+      
+      this->lp[cpu]->llc->invalidate_entry(fill_mshr.address);
+      // also check llc's wq and inflight_writes queue. Will need to get rid of all packets there too!
+      // this is easier said than done man :(
+      this->lp[cpu]->llc->purgeFromInflightWrites(fill_mshr.address);
+      this->lp[cpu]->llc->purgeFromWriteQueue(fill_mshr.address);
+      this->lp[cpu]->invalidateEntry(fill_mshr.address,true);
+      // lets also purge from our lower level
+
+      std::deque<champsim::channel::request_type>::iterator tmp;
+      bool found = false;
+      for (auto it = lower_level->WQ.begin(); it != lower_level->WQ.end() ; it++) {
+        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+          tmp = it;
+          found = true;
+        }
+      }
+      if (found)
+      lower_level->WQ.erase(tmp);
+
+      // std::deque<champsim::channel::request_type>::iterator tmp;
+      found = false;
+      for (auto it = lower_level->RQ.begin(); it != lower_level->RQ.end() ; it++) {
+        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+          tmp = it;
+          found = true;
+        }
+      }
+      if (found)
+      lower_level->RQ.erase(tmp);
+
+      // std::deque<champsim::channel::request_type>::iterator tmp;
+      found = false;
+      for (auto it = lower_level->PQ.begin(); it != lower_level->PQ.end() ; it++) {
+        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+          tmp = it;
+          found = true;
+        }
+      }
+      if (found)
+      lower_level->PQ.erase(tmp);
+
+    }
+    isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
   }
   assert(isValid);
 
@@ -533,10 +656,14 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       // if (NAME[NAME.length() - 1] == 'C') {
         // std::cout<<"This should never happen! Address is "<<handle_pkt.address<<" I am "<<NAME<<"\n";
       // }
-      if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH)
+      if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
         success = lower_level->add_rq(fwd_pkt);
-      else
+        lower_level->check_collision();
+      }
+      else {
         success = lower_level->add_pq(fwd_pkt);      
+        lower_level->check_collision();
+      }
     }
 
     
@@ -615,11 +742,11 @@ void CACHE::trackAddr (uint64_t addr, std::string caller) {
   // if (NAME[NAME.length() - 1] == 'B') {
   //   return;
   // }
-  // if ((caller.compare("try_hit") == 0) && ((NAME[NAME.length() - 1] == 'D') || (NAME[NAME.length() - 1] == 'I'))) {
-  //   return;
-  // }
+  // // if ((caller.compare("try_hit") == 0) && ((NAME[NAME.length() - 1] == 'D') || (NAME[NAME.length() - 1] == 'I'))) {
+  // //   return;
+  // // }
 
-  // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
+  // if ((addr >> LOG2_BLOCK_SIZE) == (4571532 >> LOG2_BLOCK_SIZE)) {
   //   std :: cout << "Found special set, address is "<<addr<<", caller is "<< caller << " and Name is " << NAME << std::endl;
   // }
 
@@ -665,7 +792,7 @@ long CACHE::operate()
 
     for (auto q : {std::ref(MSHR)}) {
       auto [fill_begin, fill_end] =
-          champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return x.event_cycle <= cycle; });
+          champsim::get_span_p(std::cbegin(q.get()), std::cend(q.get()), fill_bw, [cycle = current_cycle](const auto& x) { return ((x.event_cycle <= cycle) || ((x.address >> LOG2_BLOCK_SIZE) == (3826412 >> LOG2_BLOCK_SIZE))); });
       auto complete_end = std::find_if_not(fill_begin, fill_end, [this](const auto& x) { return this->handle_request(x); });
       fill_bw -= std::distance(fill_begin, complete_end);
       q.get().erase(fill_begin, complete_end);
@@ -854,13 +981,24 @@ void CACHE::finish_packet(const response_type& packet)
       mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR),
                                  [match = packet.address >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
       first_unreturned = std::find_if(MSHR.begin(), MSHR.end(), [](auto x) { return x.event_cycle == std::numeric_limits<uint64_t>::max(); });
-
+      trackAddr(t.address,"Inserting packet into mshr");
   }
 
   // MSHR holds the most updated information about this request
   mshr_entry->data = packet.data;
   mshr_entry->pf_metadata = packet.pf_metadata;
   mshr_entry->event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
+
+  if ((NAME[NAME.length() - 1]) == 'C') {
+    handle_request(*mshr_entry);
+    MSHR.erase(mshr_entry);
+    return;
+  }
+  else if (NAME[NAME.length() - 1] == 'D') {
+    handle_fill(*mshr_entry);
+    MSHR.erase(mshr_entry);
+    return;
+  }
 
   if constexpr (champsim::debug_print) {
     fmt::print("[{}_MSHR] {} instr_id: {} address: {:#x} data: {:#x} type: {} to_finish: {} event: {} current: {}\n", NAME, __func__, mshr_entry->instr_id,
@@ -1035,11 +1173,13 @@ void CACHE::initialize()
     // L1D 
     this->lp[cpu]->l1DToLP = new champsim::channel;
     this->lp[cpu]->l1DToL2 = this->lower_level;
+    this->lp[cpu]->l1D = this;
   }
   if (NAME[NAME.length() - 1] == 'I') {
     // L1I
     this->lp[cpu]->l1IToLP = new champsim::channel;
     this->lp[cpu]->l1IToL2 = this->lower_level;
+    this->lp[cpu]->l1I = this;
   }
   if (NAME[NAME.length() - 1] == 'C' && NAME.compare("LLC") != 0) {
     // L2C
@@ -1048,6 +1188,8 @@ void CACHE::initialize()
 
     this->lp[cpu]->l2NumSets = this->NUM_SET;
     this->lp[cpu]->l2NumWays = this->NUM_WAY;
+
+    this->lp[cpu]->l2C = this;
 
     if (this->lp[cpu]->llcNumSets != -1) {
 
@@ -1073,6 +1215,8 @@ void CACHE::initialize()
 
     this->lp[cpu]->llcNumSets = this->NUM_SET;
     this->lp[cpu]->llcNumWays = this->NUM_WAY;
+
+    this->lp[cpu]->llc = this;
 
     if (this->lp[cpu]->l2NumSets != -1) {
 

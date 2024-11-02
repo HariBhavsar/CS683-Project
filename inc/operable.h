@@ -50,6 +50,12 @@ public:
     champsim::channel* l1IToL2 = nullptr;
     champsim::channel* l2ToLLC = nullptr;
     champsim::channel* llcToDRAM = nullptr;
+
+    champsim::operable* l1D;
+    champsim::operable* l1I;
+    champsim::operable* l2C;
+    champsim::operable* llc;
+
     int l2NumSets = -1;
     int l2NumWays = -1;
     int llcNumSets = -1;
@@ -117,6 +123,9 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
   virtual void begin_phase() {}       // LCOV_EXCL_LINE
   virtual void end_phase(unsigned) {} // LCOV_EXCL_LINE
   virtual void print_deadlock() {}    // LCOV_EXCL_LINE
+  virtual uint64_t invalidate_entry (uint64_t inval_addr) {return 0;}
+  virtual void purgeFromInflightWrites(uint64_t addr) {return;}
+  virtual void purgeFromWriteQueue(uint64_t addr) {return;}
 };
 
 } // namespace champsim
