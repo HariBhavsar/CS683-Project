@@ -17,8 +17,9 @@
 #ifndef OPERABLE_H
 #define OPERABLE_H
 
-#include <champsim_constants.h>
 #include <iostream>
+
+#include <champsim_constants.h>
 
 namespace champsim
 {
@@ -27,19 +28,19 @@ class operable
 {
 
 public:
-  class levelPredictorEntry {
-    public:
+  class levelPredictorEntry
+  {
+  public:
     uint64_t tag;
     bool isInLLC;
     bool isInBoth;
     bool invalid;
-    levelPredictorEntry() {
-      invalid = true;
-    }
+    levelPredictorEntry() { invalid = true; }
   };
 
-  class levelPredictor {
-    public:
+  class levelPredictor
+  {
+  public:
     levelPredictorEntry** table = nullptr;
     champsim::channel* l1DToLP = nullptr;
     champsim::channel* l1IToLP = nullptr;
@@ -49,6 +50,10 @@ public:
     champsim::channel* l1IToL2 = nullptr;
     champsim::channel* l2ToLLC = nullptr;
     champsim::channel* llcToDRAM = nullptr;
+    champsim::operable* l1D;
+    champsim::operable* l1I;
+    champsim::operable* l2C;
+    champsim::operable* llc;
     int l2NumSets = -1;
     int l2NumWays = -1;
     int llcNumSets = -1;
@@ -56,16 +61,17 @@ public:
     int indexingBits = -1;
     int numWays = -1;
 
-    int getSet (uint64_t cl_addr);
+    int getSet(uint64_t cl_addr);
 
-    int wherePresent (uint64_t addr);
+    int wherePresent(uint64_t addr);
 
-    void invalidateEntry (uint64_t addr, bool LLC);
+    void invalidateEntry(uint64_t addr, bool LLC);
 
-    int insert (uint64_t addr, bool LLC); 
+    int insert(uint64_t addr, bool LLC);
 
-    levelPredictor() {
-      std::cout<<"Constructor called\n";
+    levelPredictor()
+    {
+      std::cout << "Constructor called\n";
       table = nullptr;
       l1DToLP = nullptr;
       l1IToLP = nullptr;
@@ -86,7 +92,7 @@ public:
 
   const double CLOCK_SCALE;
   double leap_operation = 0;
-static std::vector<operable::levelPredictor*> lp;  // Declaration
+  static std::vector<operable::levelPredictor*> lp; // Declaration
 
   static bool isConstructed;
 
@@ -116,6 +122,10 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
   virtual void begin_phase() {}       // LCOV_EXCL_LINE
   virtual void end_phase(unsigned) {} // LCOV_EXCL_LINE
   virtual void print_deadlock() {}    // LCOV_EXCL_LINE
+  bool isPresent(uint64_t) { return false; }
+  bool isDirty(uint64_t) { return false; }
+  uint64_t invalidate_entry(uint64_t inval_addr) { return 0; }
+  bool writeback(channel*, uint64_t, uint64_t, uint64_t, bool) { return false; }
 };
 
 } // namespace champsim

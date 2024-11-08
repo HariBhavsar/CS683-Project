@@ -120,12 +120,17 @@ class CACHE : public champsim::operable
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
   };
 
+  bool isPresent(uint64_t addr);
+  bool isDirty(uint64_t addr);
+  uint64_t invalidate_entry(uint64_t inval_addr);
+  bool writeback(champsim::channel* toAdd, uint64_t addr, uint64_t cpu, uint64_t instr_id, bool fromL1D);
   bool try_hit(const tag_lookup_type& handle_pkt);
   bool handle_fill(const mshr_type& fill_mshr);
   bool handle_miss(const tag_lookup_type& handle_pkt);
   bool handle_write(const tag_lookup_type& handle_pkt);
   void finish_packet(const response_type& packet);
   void finish_translation(const response_type& packet);
+  void trackAddr (uint64_t addr, std::string caller);
 
   void issue_translation();
 
@@ -216,7 +221,6 @@ public:
   [[deprecated("Use get_set_index() instead.")]] uint64_t get_set(uint64_t address) const;
   [[deprecated("This function should not be used to access the blocks directly.")]] uint64_t get_way(uint64_t address, uint64_t set) const;
 
-  uint64_t invalidate_entry(uint64_t inval_addr);
   int prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);
 
   [[deprecated("Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.")]] int

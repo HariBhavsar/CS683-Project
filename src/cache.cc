@@ -90,6 +90,9 @@ CACHE::BLOCK::BLOCK(mshr_type mshr)
 
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
+  // std::cout << NAME << " " << fill_mshr.address << std::endl;
+
+  trackAddr(fill_mshr.address, "handle_fill");
   cpu = fill_mshr.cpu;
 
   // if (((fill_mshr.address == 1137648) || (fill_mshr.address == 140726619487216)) && NAME[NAME.length() - 1] != 'B') {
@@ -116,26 +119,265 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto metadata_thru = fill_mshr.pf_metadata;
   auto pkt_address = (virtual_prefetch ? fill_mshr.v_address : fill_mshr.address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
   if (way != set_end) {
-    if (way->valid && way->dirty) {
-      request_type writeback_packet;
+    if (way->valid) {
+      trackAddr(way->address, "evict order");
+      // std::cout << way->address << std::endl;
+      if (NAME[NAME.length() - 1] == 'C' && !(NAME.compare("LLC") == 0)) {
+        // we are in L2
+        // first check, is it there in L1D/L1I
+        bool isPresentInL1D = false;
+        isPresentInL1D = (this->lp[cpu]->l1D->isPresent(way->address));
+        bool isPresentInL1I = (this->lp[cpu]->l1I->isPresent(way->address));
+        assert(!(isPresentInL1D && isPresentInL1I));
 
-      writeback_packet.cpu = fill_mshr.cpu;
-      writeback_packet.address = way->address;
-      writeback_packet.data = way->data;
-      writeback_packet.instr_id = fill_mshr.instr_id;
-      writeback_packet.ip = 0;
-      writeback_packet.type = access_type::WRITE;
-      writeback_packet.pf_metadata = way->pf_metadata;
-      writeback_packet.response_requested = false;
-      writeback_packet.fromL1D = fill_mshr.fromL1D;
+        if (isPresentInL1I) {
+          if (this->lp[cpu]->l1I->isDirty(way->address)) {
+            success = this->lp[cpu]->l1I->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+            this->lp[cpu]->l1I->invalidate_entry(way->address);
+          } else {
+            this->lp[cpu]->l1I->invalidate_entry(way->address);
+            if (way->dirty) {
+              trackAddr(way->address, "Writeback");
+              request_type writeback_packet;
 
-      if constexpr (champsim::debug_print) {
-        fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address,
-                   writeback_packet.v_address, fill_mshr.pf_metadata);
+              writeback_packet.cpu = fill_mshr.cpu;
+              writeback_packet.address = way->address;
+              writeback_packet.data = way->data;
+              writeback_packet.instr_id = fill_mshr.instr_id;
+              writeback_packet.ip = 0;
+              writeback_packet.type = access_type::WRITE;
+              writeback_packet.pf_metadata = way->pf_metadata;
+              writeback_packet.response_requested = false;
+              writeback_packet.fromL1D = fill_mshr.fromL1D;
+              // trackAddr(writeback_packet.address, "Writeback");
+              success = lower_level->add_wq(writeback_packet);
+            }
+          }
+        } else if (isPresentInL1D) {
+          if (this->lp[cpu]->l1D->isDirty(way->address)) {
+            success = this->lp[cpu]->l1D->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+            this->lp[cpu]->l1D->invalidate_entry(way->address);
+          } else {
+            this->lp[cpu]->l1D->invalidate_entry(way->address);
+            if (way->dirty) {
+              trackAddr(way->address, "Writeback");
+              request_type writeback_packet;
+
+              writeback_packet.cpu = fill_mshr.cpu;
+              writeback_packet.address = way->address;
+              writeback_packet.data = way->data;
+              writeback_packet.instr_id = fill_mshr.instr_id;
+              writeback_packet.ip = 0;
+              writeback_packet.type = access_type::WRITE;
+              writeback_packet.pf_metadata = way->pf_metadata;
+              writeback_packet.response_requested = false;
+              writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+              success = lower_level->add_wq(writeback_packet);
+            }
+          }
+        } else {
+          if (way->dirty) {
+            trackAddr(way->address, "Writeback");
+            request_type writeback_packet;
+
+            writeback_packet.cpu = fill_mshr.cpu;
+            writeback_packet.address = way->address;
+            writeback_packet.data = way->data;
+            writeback_packet.instr_id = fill_mshr.instr_id;
+            writeback_packet.ip = 0;
+            writeback_packet.type = access_type::WRITE;
+            writeback_packet.pf_metadata = way->pf_metadata;
+            writeback_packet.response_requested = false;
+            writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+            success = lower_level->add_wq(writeback_packet);
+          }
+        }
+      } else if (NAME.compare("LLC") == 0) {
+        bool isPresentInL1D = false;
+        isPresentInL1D = (this->lp[cpu]->l1D->isPresent(way->address));
+        bool isPresentInL1I = (this->lp[cpu]->l1I->isPresent(way->address));
+        assert(!(isPresentInL1D && isPresentInL1I));
+
+        if (isPresentInL1I) {
+          // std::cout << way->address << std::endl;
+          if (this->lp[cpu]->l1I->isDirty(way->address)) {
+            success = this->lp[cpu]->l1I->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+            this->lp[cpu]->l1I->invalidate_entry(way->address);
+            assert(this->lp[cpu]->l2C->isPresent(way->address));
+            this->lp[cpu]->l2C->invalidate_entry(way->address);
+
+#ifdef USE_LEVEL_PREDICTOR
+            this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+
+          } else {
+            this->lp[cpu]->l1I->invalidate_entry(way->address);
+            assert(this->lp[cpu]->l2C->isPresent(way->address));
+            if (this->lp[cpu]->l2C->isDirty(way->address)) {
+              success = this->lp[cpu]->l2C->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+            } else {
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+              if (way->dirty) {
+                trackAddr(way->address, "Writeback");
+                request_type writeback_packet;
+
+                writeback_packet.cpu = fill_mshr.cpu;
+                writeback_packet.address = way->address;
+                writeback_packet.data = way->data;
+                writeback_packet.instr_id = fill_mshr.instr_id;
+                writeback_packet.ip = 0;
+                writeback_packet.type = access_type::WRITE;
+                writeback_packet.pf_metadata = way->pf_metadata;
+                writeback_packet.response_requested = false;
+                writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+                success = lower_level->add_wq(writeback_packet);
+              }
+            }
+          }
+        } else if (isPresentInL1D) {
+          if (this->lp[cpu]->l1D->isDirty(way->address)) {
+            success = this->lp[cpu]->l1D->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+            this->lp[cpu]->l1D->invalidate_entry(way->address);
+            assert(this->lp[cpu]->l2C->isPresent(way->address));
+            this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+            this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+          } else {
+            this->lp[cpu]->l1D->invalidate_entry(way->address);
+            assert(this->lp[cpu]->l2C->isPresent(way->address));
+            if (this->lp[cpu]->l2C->isDirty(way->address)) {
+              success = this->lp[cpu]->l2C->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+            } else {
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+              if (way->dirty) {
+                trackAddr(way->address, "Writeback");
+                request_type writeback_packet;
+
+                writeback_packet.cpu = fill_mshr.cpu;
+                writeback_packet.address = way->address;
+                writeback_packet.data = way->data;
+                writeback_packet.instr_id = fill_mshr.instr_id;
+                writeback_packet.ip = 0;
+                writeback_packet.type = access_type::WRITE;
+                writeback_packet.pf_metadata = way->pf_metadata;
+                writeback_packet.response_requested = false;
+                writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+                success = lower_level->add_wq(writeback_packet);
+              }
+            }
+          }
+        } else if (!isPresentInL1D && !isPresentInL1I) {
+          if (this->lp[cpu]->l2C->isPresent(way->address)) {
+            if (this->lp[cpu]->l2C->isDirty(way->address)) {
+              success = this->lp[cpu]->l2C->writeback(lower_level, way->address, fill_mshr.cpu, fill_mshr.instr_id, fill_mshr.fromL1D);
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+            } else {
+              this->lp[cpu]->l2C->invalidate_entry(way->address);
+#ifdef USE_LEVEL_PREDICTOR
+              this->lp[cpu]->invalidateEntry(way->address, false);
+#endif
+              if (way->dirty) {
+                trackAddr(way->address, "Writeback");
+                request_type writeback_packet;
+
+                writeback_packet.cpu = fill_mshr.cpu;
+                writeback_packet.address = way->address;
+                writeback_packet.data = way->data;
+                writeback_packet.instr_id = fill_mshr.instr_id;
+                writeback_packet.ip = 0;
+                writeback_packet.type = access_type::WRITE;
+                writeback_packet.pf_metadata = way->pf_metadata;
+                writeback_packet.response_requested = false;
+                writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+                success = lower_level->add_wq(writeback_packet);
+              }
+            }
+          } else {
+            if (way->dirty) {
+              trackAddr(way->address, "Writeback");
+              request_type writeback_packet;
+
+              writeback_packet.cpu = fill_mshr.cpu;
+              writeback_packet.address = way->address;
+              writeback_packet.data = way->data;
+              writeback_packet.instr_id = fill_mshr.instr_id;
+              writeback_packet.ip = 0;
+              writeback_packet.type = access_type::WRITE;
+              writeback_packet.pf_metadata = way->pf_metadata;
+              writeback_packet.response_requested = false;
+              writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+              success = lower_level->add_wq(writeback_packet);
+            }
+          }
+        }
+      } else {
+        trackAddr(way->address, "writeback");
+        if (way->valid && way->dirty) {
+          request_type writeback_packet;
+
+          writeback_packet.cpu = fill_mshr.cpu;
+          writeback_packet.address = way->address;
+          writeback_packet.data = way->data;
+          writeback_packet.instr_id = fill_mshr.instr_id;
+          writeback_packet.ip = 0;
+          writeback_packet.type = access_type::WRITE;
+          writeback_packet.pf_metadata = way->pf_metadata;
+          writeback_packet.response_requested = false;
+          writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+          if constexpr (champsim::debug_print) {
+            fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address,
+                       writeback_packet.v_address, fill_mshr.pf_metadata);
+          }
+
+          success = lower_level->add_wq(writeback_packet);
+        }
       }
-
-      success = lower_level->add_wq(writeback_packet);
     }
+    // if (way->valid && way->dirty) {
+    //   request_type writeback_packet;
+
+    //   writeback_packet.cpu = fill_mshr.cpu;
+    //   writeback_packet.address = way->address;
+    //   writeback_packet.data = way->data;
+    //   writeback_packet.instr_id = fill_mshr.instr_id;
+    //   writeback_packet.ip = 0;
+    //   writeback_packet.type = access_type::WRITE;
+    //   writeback_packet.pf_metadata = way->pf_metadata;
+    //   writeback_packet.response_requested = false;
+    //   writeback_packet.fromL1D = fill_mshr.fromL1D;
+
+    //   if constexpr (champsim::debug_print) {
+    //     fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address,
+    //                writeback_packet.v_address, fill_mshr.pf_metadata);
+    //   }
+
+    //   success = lower_level->add_wq(writeback_packet);
+    // }
 #ifdef USE_LEVEL_PREDICTOR
     if (way->valid && NAME[NAME.length() - 1] == 'C') {
       // only for L2, LLC, update table
@@ -261,6 +503,47 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   return success;
 }
 
+bool CACHE::writeback(champsim::channel* toAdd, uint64_t addr, uint64_t cpu, uint64_t instr_id, bool fromL1D)
+{
+  trackAddr(addr, this->NAME + " writeback");
+  auto [set_begin, set_end] = get_set_span(addr);
+  auto way =
+      std::find_if(set_begin, set_end, [match = addr >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
+  assert(way != set_end);
+
+  request_type writeback_packet;
+
+  writeback_packet.cpu = cpu;
+  writeback_packet.address = way->address;
+  writeback_packet.data = way->data;
+  writeback_packet.instr_id = instr_id;
+  writeback_packet.ip = 0;
+  writeback_packet.type = access_type::WRITE;
+  writeback_packet.pf_metadata = way->pf_metadata;
+  writeback_packet.response_requested = false;
+  writeback_packet.fromL1D = fromL1D;
+
+  return (toAdd->add_wq(writeback_packet));
+}
+
+bool CACHE::isPresent(uint64_t addr)
+{
+
+  auto [set_begin, set_end] = get_set_span(addr);
+  auto way =
+      std::find_if(set_begin, set_end, [match = addr >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
+  return (way != set_end);
+}
+
+bool CACHE::isDirty(uint64_t addr)
+{
+  auto [set_begin, set_end] = get_set_span(addr);
+  auto way =
+      std::find_if(set_begin, set_end, [match = addr >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
+  assert(way != set_end);
+  return (way->dirty);
+}
+
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
@@ -311,6 +594,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 {
+
+  trackAddr(handle_pkt.address, "handle_miss");
 
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
@@ -460,6 +745,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
 bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
 {
+
+  trackAddr(handle_pkt.v_address, "handle_write");
+
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
@@ -494,6 +782,13 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 
     return retval;
   };
+}
+
+void CACHE::trackAddr(uint64_t addr, std::string caller)
+{
+  // if (addr == 1049952) {
+  //   std ::cout << this->NAME << " called by " << caller << "\n";
+  // }tr
 }
 
 long CACHE::operate()
@@ -629,7 +924,7 @@ uint64_t CACHE::get_way(uint64_t address, uint64_t) const
 
 uint64_t CACHE::invalidate_entry(uint64_t inval_addr)
 {
-
+  trackAddr(inval_addr, "invalidated");
   auto [begin, end] = get_set_span(inval_addr);
   auto inv_way =
       std::find_if(begin, end, [match = inval_addr >> OFFSET_BITS, shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
@@ -670,6 +965,7 @@ int CACHE::prefetch_line(uint64_t, uint64_t, uint64_t pf_addr, bool fill_this_le
 
 void CACHE::finish_packet(const response_type& packet)
 {
+  trackAddr(packet.address, "finish_packet (packet returned from lower level)");
   // std::cout<<"Packet address is "<<packet.address<<" and its from is "<<packet.fromL1D<<"\n";
   // exit(1);
   // check MSHR information
@@ -877,16 +1173,19 @@ void CACHE::initialize()
     // L1D
     this->lp[cpu]->l1DToLP = new champsim::channel;
     this->lp[cpu]->l1DToL2 = this->lower_level;
+    this->lp[cpu]->l1D = this;
   }
   if (NAME[NAME.length() - 1] == 'I') {
     // L1I
     this->lp[cpu]->l1IToLP = new champsim::channel;
     this->lp[cpu]->l1IToL2 = this->lower_level;
+    this->lp[cpu]->l1I = this;
   }
   if (NAME[NAME.length() - 1] == 'C' && NAME.compare("LLC") != 0) {
     // L2C
     this->lp[cpu]->l2ToLP = new champsim::channel;
     this->lp[cpu]->l2ToLLC = this->lower_level;
+    this->lp[cpu]->l2C = this;
 
     this->lp[cpu]->l2NumSets = this->NUM_SET;
     this->lp[cpu]->l2NumWays = this->NUM_WAY;
@@ -910,6 +1209,7 @@ void CACHE::initialize()
     // LLC
     this->lp[cpu]->llcToLP = new champsim::channel;
     this->lp[cpu]->llcToDRAM = this->lower_level;
+    this->lp[cpu]->llc = this;
 
     this->lp[cpu]->llcNumSets = this->NUM_SET;
     this->lp[cpu]->llcNumWays = this->NUM_WAY;
