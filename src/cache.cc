@@ -16,7 +16,7 @@
 
 #include "cache.h"
 
-// #define USE_LEVEL_PREDICTOR 1
+#define USE_LEVEL_PREDICTOR 1
 
 /*
 
@@ -392,8 +392,8 @@ bool CACHE::handle_request(const mshr_type& fill_mshr)
     sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
 
     response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, metadata_thru, fill_mshr.instr_depend_on_me, fill_mshr.fromL1D, fill_mshr.type, fill_mshr.instr_id, fill_mshr.ip};
-    for (auto ret : fill_mshr.to_return)
-      ret->push_back(response); //  need to keep this! 
+    // for (auto ret : fill_mshr.to_return)
+    //   ret->push_back(response); //  need to keep this! 
 
     #ifdef USE_LEVEL_PREDICTOR
       if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
