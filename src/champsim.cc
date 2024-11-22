@@ -41,267 +41,211 @@ namespace champsim
   // operable::levelPredictor** lp = new operable::levelPredictor* [NUM_CPUS];
   bool operable::isConstructed = false;
   
-  void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
-    
-    // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
-    //   std :: cout << "Invalidate called on sp. address with LLC = " << LLC << std::endl; 
-    // }
+  void operable::levelPredictor::confirmAddr(uint64_t addr, bool LLC) {
 
-    int set = getSet((addr >> LOG2_BLOCK_SIZE));
+    uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+    if (LLC) {
 
-    // if ((addr >> LOG2_BLOCK_SIZE) == (10644144 >> LOG2_BLOCK_SIZE)) {
-      
-    //   std::cout << "Sp. address found, printing table, tag of guy = " << (addr >> LOG2_BLOCK_SIZE) <<",format=\n<tag>\t<invalid>\t<isInLLC>\t<isInBoth>\n";
-    //   for (size_t i=0; i < numWays; i++) {
+      int llcSet = getLLCSet(cl_addr);
 
-    //     std :: cout << table[set][i].tag << "\t" << table[set][i].invalid << "\t" << table[set][i].isInLLC << "\t" << table[set][i].isInBoth << "\n";  
-
-    //   }
-
-    //   std :: cout << "For extras:\n";
-
-    //   for (size_t i=0; i < extras[set].size(); i++) {
-
-    //     std :: cout << extras[set][i].tag << "\t" << extras[set][i].invalid << "\t" << extras[set][i].isInLLC << "\t" << extras[set][i].isInBoth << "\n";  
-
-    //   }
-
-    // }
-
-
-    bool found = false;
-    for (int i=0; i<numWays; i++) {
-      if (table[set][i].tag == (addr >> LOG2_BLOCK_SIZE)) {
-        if (LLC) {
-          // block is being evicted from LLC, check to see if its in L2
-          if (table[set][i].isInBoth) {
-            // yes, so simply make this false
-            std :: cout << "addr is " << addr << " and LLC is " << LLC << std::endl;
-            assert(false && "Exclusive hierarchy! Should never be in both!");
-            table[set][i].isInBoth = false;
-            return;
-          }
-          else if (table[set][i].isInLLC) {
-            // invalidate entry
-            table[set][i].tag = 0;
-            table[set][i].invalid = true;
-            found = true;
-            // need to make modifications here
-            for (int j=0; j<extras[set].size(); j++) {
-              if (!extras[set][i].invalid && (extras[set][j].isInLLC)) {
-                table[set][i].tag = extras[set][j].tag;
-                table[set][i].invalid = false;
-                table[set][i].isInBoth = extras[set][j].isInBoth;
-                table[set][i].isInLLC = extras[set][j].isInLLC;
-                
-                extras[set][j].tag = extras[set][(extras[set].size() - 1)].tag;
-                extras[set][j].invalid = extras[set][(extras[set].size() - 1)].invalid;
-                extras[set][j].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
-                extras[set][j].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
-                extras[set].pop_back();
-                return;
-              } 
-            }
-          }
-          else {
-            return;
-          }
-        }
-        else {
-          // block is being evicted from L2, check if its in both
-          if (table[set][i].isInBoth) {
-            // we need to change iska location to LLC, and make it not be in both
-            std :: cout << "addr is " << addr << " and LLC is " << LLC << std::endl;
-            assert(false && "exclusive hierarchy!");
-            table[set][i].isInLLC = true;
-            table[set][i].isInBoth = false;
-            return;
-          }
-          else if (!table[set][i].isInLLC) {
-            // invalidate entry
-            table[set][i].tag = 0;
-            table[set][i].invalid = true;
-            found = true;
-            for (int j=0; j<extras[set].size(); j++) {
-              if (!extras[set][j].invalid && !(extras[set][j].isInLLC)) {
-                table[set][i].tag = extras[set][j].tag;
-                table[set][i].invalid = false;
-                table[set][i].isInBoth = extras[set][j].isInBoth;
-                table[set][i].isInLLC = extras[set][j].isInLLC;
-                
-                extras[set][j].tag = extras[set][(extras[set].size() - 1)].tag;
-                extras[set][j].invalid = extras[set][(extras[set].size() - 1)].invalid;
-                extras[set][j].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
-                extras[set][j].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
-                extras[set].pop_back();
-                return;
-              } 
-            }
-          }
-          else {
-            return;
-          }
-        }
-      }  
-    }
-
-    for (int i=0; i<extras[set].size(); i++) {
-      if (extras[set][i].tag == (addr >> LOG2_BLOCK_SIZE)) {
-        if (LLC) {
-          if (extras[set][i].isInLLC) {
-            extras[set][i].tag = extras[set][(extras[set].size() - 1)].tag;
-            extras[set][i].invalid = extras[set][(extras[set].size() - 1)].invalid;
-            extras[set][i].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
-            extras[set][i].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
-            extras[set].pop_back();      
-            return;      
-          }
-          else {
-            assert(false && "wtaf bhai");
-          }
-        }
-        else {
-          if (!(extras[set][i].isInBoth) && !(extras[set][i].isInLLC)) {
-            extras[set][i].tag = extras[set][(extras[set].size() - 1)].tag;
-            extras[set][i].invalid = extras[set][(extras[set].size() - 1)].invalid;
-            extras[set][i].isInBoth = extras[set][(extras[set].size() - 1)].isInBoth;
-            extras[set][i].isInLLC = extras[set][(extras[set].size() - 1)].isInLLC;
-            extras[set].pop_back();      
-            return;                  
-          }
-          else {
-            assert(false && "bs");
-          }
+      for (int i=0; i<llcNumWays; i++) {
+        if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
+          assert (!llcTracker[llcSet][i].confirm);
+          llcTracker[llcSet][i].confirm = true;
+          return;
         }
       }
+
+      // assert(false && "Damn hyperpredictor too far ahead!");
+
+    }
+    else {
+
+      int l2Set = getL2Set(cl_addr);
+
+      for (int i=0; i<l2NumWays; i++) {
+        if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
+          assert (!l2Tracker[l2Set][i].confirm);
+          l2Tracker[l2Set][i].confirm = true;
+          return;
+        }
+      }
+
+      // assert(false && "Damn hyperpredictor too far ahead of L2!");
+
     }
 
-    if (found) {
-      return;
+  }
+
+  void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
+
+    uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+    if (LLC) {
+      int llcSet = getLLCSet(cl_addr);
+      for (int i=0; i<llcNumWays; i++) {
+        if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
+          // if (!llcTracker[llcSet][i].confirm) {
+            // std :: cout << addr << "\n";
+          // }
+          // assert(llcTracker[llcSet][i].confirm && "Must be for sure in LLC or else predictor too fast");
+          llcTracker[llcSet][i].invalid = true;
+          llcTracker[llcSet][i].confirm = false;
+          llcAccCount++;
+          return;
+        }
+      }
+      assert(false && "Invalidating some llc address that wasn't even found in LLC!");
     }
-    return;
-    // std::cout<<"Should never reach here! Address is " << addr << " LLC = " << LLC << "\n";
-    // exit(1);
+    else {
+      int l2Set = getL2Set(cl_addr);
+      for (int i=0; i<l2NumWays; i++) {
+        if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
+          l2Tracker[l2Set][i].invalid = true;
+          // assert(l2Tracker[l2Set][i].confirm && "Must be for sure in L2 or else predictor too fast");
+          l2Tracker[l2Set][i].confirm = false;
+          l2AccCount++;
+          return;
+        }
+      }
+      assert(false && "Invalidating some l2 address that wasn't even found in L2!");
+    }
   }
 
   int operable::levelPredictor::insert(uint64_t addr, bool LLC) {
-  
-    // if ((addr >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) {
-      // std::cout<<"Call insert sp. address from "<<LLC<<"\n";
-    // }
-// 
+
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
 
-    // if (cl_addr == (10644144 >> LOG2_BLOCK_SIZE)) {
-    //   std :: cout << "Insert called on sp. address with LLC = " << LLC << std::endl; 
-    // }
-
-    int set = getSet(cl_addr);
-
-    int invalidWay = -1;
-    for (int i=0; i<numWays; i++) {
-      if (table[set][i].invalid) {
-        invalidWay = i;
-      }
-      else if (table[set][i].tag == cl_addr) {
-        // we need to update LLC
-        if ((table[set][i].isInLLC) && (!LLC)) {
-          table[set][i].isInBoth = true;
+    if (LLC) {
+      int llcSet = getLLCSet(cl_addr);
+      int freeWay = -1;
+      int lruEntry = 0;
+      for (size_t i=0; i < llcNumWays; i++) {
+        if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
+          std::cout << addr << std::endl;
+          assert(false && "Inserting address into llc but address already in llc");
         }
-        else if ((!table[set][i].isInLLC) && LLC) {
-          table[set][i].isInBoth = true;
-          return 1;
+        else if (llcTracker[llcSet][i].invalid) {
+          freeWay = i;
         }
-        table[set][i].isInLLC = LLC;
-        if (LLC) {
-          // return 1 if block was originally in L2, being inserted into L3
-          return 1;
-        }
-        else {
-          // return 2 if block was originally in L3, being inserted into L2
-          return 2;
+        else if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].lru < llcTracker[llcSet][lruEntry].lru)) {
+          lruEntry = i;
         }
       }
+      if (freeWay != -1) {
+        llcTracker[llcSet][freeWay].invalid = false;
+        llcTracker[llcSet][freeWay].tag = cl_addr;
+        llcTracker[llcSet][freeWay].confirm = false;
+        llcTracker[llcSet][freeWay].lru = llcAccCount;
+        llcAccCount++;
+      }
+      else {
+        // simulate eviction, need to evict lru entry
+        assert(!(llcTracker[llcSet][lruEntry].invalid) && llcTracker[llcSet][lruEntry].confirm && "LLC LRU entry must be confirm present in LLC!");
+        if ((llcTracker[llcSet][lruEntry].tag) == (3699576 >> LOG2_BLOCK_SIZE)) {
+          std::cout << "Predicting eviction of sp. address from LLC\n";
+        }
+        llcTracker[llcSet][lruEntry].invalid = false;
+        llcTracker[llcSet][lruEntry].tag = cl_addr;
+        llcTracker[llcSet][lruEntry].lru = llcAccCount;
+        llcTracker[llcSet][lruEntry].confirm = false;
+        llcAccCount++;
+      }
     }
-    if (invalidWay == -1) {
-      // The following is only for exclusive hierarchies.
-      // if (set == getSet(10644144 >> LOG2_BLOCK_SIZE)) {
-      //   std :: cout << "Sp. Address inserted into extra with llc = " << LLC << std::endl; 
-      // }
+    else {
+      int l2Set = getL2Set(cl_addr);
+      int freeWay = -1;
+      int lruEntry = 0;
+      for (size_t i=0; i<l2NumWays; i++) {
+        if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
+          std::cout << "addr = " << addr << std::endl;
+          assert(false && "Inserting address into l2 but address already in l2");
+        }
+        else if (l2Tracker[l2Set][i].invalid) {
+          freeWay = i;
+        }
+        else if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].lru < l2Tracker[l2Set][lruEntry].lru)) {
+          lruEntry = i;
+        }
+      }
+      if (freeWay != -1) {
+        l2Tracker[l2Set][freeWay].invalid = false;
+        l2Tracker[l2Set][freeWay].tag = cl_addr;
+        l2Tracker[l2Set][freeWay].lru = l2AccCount;
+        l2Tracker[l2Set][freeWay].confirm = false;
+        l2AccCount++;
+      }
+      else {
+        // simulate eviction, need to evict lru entry => put it in LLC
+        assert(!(l2Tracker[l2Set][lruEntry].invalid) && l2Tracker[l2Set][lruEntry].confirm && "L2 LRU entry must be confirmed and valid!");
+        // if ((l2Tracker[l2Set][lruEntry].tag) == (3699576 >> LOG2_BLOCK_SIZE)) {
+          
+        //   std::cout << "Set = " << l2Set << "\n";
+        //   std::cout<<"Printing <tag> \t <lru> \t <invalid>\n";
+        //   for (int i=0; i < l2NumWays; i++) {
+        //     std :: cout << l2Tracker[l2Set][i].tag << " \t " << l2Tracker[l2Set][i].lru << " \t " << l2Tracker[l2Set][i].invalid<<"\n";
+        //   }
 
-      levelPredictorEntry tmp;
-      tmp.invalid = 0;
-      tmp.tag = cl_addr;
-      tmp.isInBoth = false;
-      tmp.isInLLC = LLC;
-      extras[set].push_back(tmp);
-      return 0;
-
+        //   std::cout << "Predicting eviction of sp. address from L2, triggering address is " << addr << "\n";
+        // }
+        insert((l2Tracker[l2Set][lruEntry].tag << LOG2_BLOCK_SIZE),true);
+        l2Tracker[l2Set][lruEntry].invalid = false;
+        l2Tracker[l2Set][lruEntry].confirm = false;
+        l2Tracker[l2Set][lruEntry].tag = cl_addr;
+        l2Tracker[l2Set][lruEntry].lru = l2AccCount;
+        l2AccCount++;
+      }
     }
-    table[set][invalidWay].invalid = false;
-    table[set][invalidWay].isInLLC = LLC;
-    table[set][invalidWay].tag = cl_addr;
-    // return 0 if block came from DRAM
 
-    // if (cl_addr == (10644144 >> LOG2_BLOCK_SIZE)) {
-      
-    //   std::cout << "Sp. address found, printing table, tag of guy = " << cl_addr <<",format=\n<tag>\t<invalid>\t<isInLLC>\t<isInBoth>\n";
-    //   for (size_t i=0; i < numWays; i++) {
 
-    //     std :: cout << table[set][i].tag << "\t" << table[set][i].invalid << "\t" << table[set][i].isInLLC << "\t" << table[set][i].isInBoth << "\n";  
-
-    //   }
-
-    //   std :: cout << "For extras:\n";
-
-    //   for (size_t i=0; i < extras[set].size(); i++) {
-
-    //     std :: cout << extras[set][i].tag << "\t" << extras[set][i].invalid << "\t" << extras[set][i].isInLLC << "\t" << extras[set][i].isInBoth << "\n";  
-
-    //   }
-
-    // }
-
-    return 0;
   }
 
   int operable::levelPredictor::wherePresent(uint64_t addr) {
     // returns 0 if addr in DRAM, 1 if in L2 and 2 if in LLC
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+    int l2Set = getL2Set(cl_addr);
+    for (size_t i=0; i < l2NumWays; i++) {
+      if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
+        invalidateEntry(addr,false);
+        return 1;
+      }
+    }
 
-    int set = getSet(cl_addr);
+    int llcSet = getLLCSet(cl_addr);
+    for (size_t i=0; i < llcNumWays; i++) {
+      if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr) && (llcTracker[llcSet][i].confirm)) {
+        invalidateEntry(addr,true);
+        return 2;
+      }
+      else if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
+        // we should predict L2 here!
+        invalidateEntry(addr,true); // not 100% sure about this, might cause bt
+        return 1;
+      }
+    }
     
-    for (int i=0; i<numWays; i++) {
-      if (!table[set][i].invalid && table[set][i].tag == cl_addr) {
-        if (table[set][i].isInLLC) {
-          return 2;
-        }
-        else {
-          return 1;
-        }
-      }
-    }
-    for (int i=0; i<extras[set].size(); i++) {
-      if (!extras[set][i].invalid && extras[set][i].tag == cl_addr) {
-        if (extras[set][i].isInLLC) {
-          return 2;
-        }
-        else {
-          return 1;
-        }
-      }
-    }
-
     return 0;
-    
+
   }
 
-  int operable::levelPredictor::getSet(uint64_t cl_addr) {
+  void operable::levelPredictor::writeBack(uint64_t addr) {
+    // returns 0 if addr in DRAM, 1 if in L2 and 2 if in LLC
+    insert(addr,false);
+
+  }
+
+  int operable::levelPredictor::getL2Set(uint64_t cl_addr) {
       // takes cache line address and returns set in LP it maps to 
-      uint64_t tmp = cl_addr & ((1 << indexingBits) - 1);
+      uint64_t tmp = cl_addr & champsim::bitmask(champsim::lg2(l2NumSets));
       return tmp;
 
   }
+
+  int operable::levelPredictor::getLLCSet(uint64_t cl_addr) {
+      // takes cache line address and returns set in LP it maps to 
+      uint64_t tmp = cl_addr & champsim::bitmask(champsim::lg2(llcNumSets));
+      return tmp;
+
+  }  
 
 phase_stats do_phase(phase_info phase, environment& env, std::vector<tracereader>& traces)
 {

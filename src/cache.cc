@@ -114,16 +114,16 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   trackAddr(fill_mshr.address,"handle_fill");
   cpu = fill_mshr.cpu;
 
-  // if (((fill_mshr.address == 1137648) || (fill_mshr.address == 140726619487216)) && NAME[NAME.length() - 1] != 'B') {
-  //   std::cout<<"mil gaya saala "<<" I am "<<NAME<<std::endl;
-  // }
-
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
-  if (way == set_end)
+  if (way == set_end) {
     way = std::next(set_begin, impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
                                                 fill_mshr.address, champsim::to_underlying(fill_mshr.type)));
+    // if (get_set_index(fill_mshr.address) == 461 && NAME.compare("cpu0_L2C") == 0 ) {
+      // std :: cout << "address = " << fill_mshr./address << "\n";
+    // }
+  }
   assert(set_begin <= way);
   assert(way <= set_end);
   const auto way_idx = static_cast<std::size_t>(std::distance(set_begin, way)); // cast protected by earlier assertion
@@ -159,26 +159,15 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       trackAddr(writeback_packet.address,"Writeback");
       success = lower_level->add_wq(writeback_packet);
 
-    }
     #ifdef USE_LEVEL_PREDICTOR
-    if (way->valid && NAME[NAME.length() - 1] == 'C') {
-      // only for L2, LLC, update table
-      if (NAME.compare("LLC") == 0) {
-        // something  
-        this->lp[cpu]->invalidateEntry(way->address,true);
-      }
-      else  {
-        // if ((way->address >> LOG2_BLOCK_SIZE) == ((11726288 >> LOG2_BLOCK_SIZE))) {
-          // std::cout<<"Evicting from L2 :D\n";
-        // }
-        this->lp[cpu]->invalidateEntry(way->address,false);
-        this->lp[cpu]->insert(way->address,true);
-      }
-    }
-    else if (way->valid && (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I')) {
-      this->lp[cpu]->insert(way->address,false);
-    }
+      if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I') {
+        trackAddr(way->address,"writebacking");
+        lp[cpu]->writeBack(way->address);
+      } 
     #endif
+
+    }
+
 
     if (success) {
       auto evicting_address = (ever_seen_data ? way->address : way->v_address) & ~champsim::bitmask(match_offset_bits ? 0 : OFFSET_BITS);
@@ -211,45 +200,17 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   if (NAME[NAME.length() - 1] == 'C') {
     // std::cerr << "Cache is " << NAME << " address is " << fill_mshr.address << " v_addr is " << fill_mshr.v_address << std::endl;
     assert((fill_mshr.responseRequested == false) || (fill_mshr.to_return.size() == 0));
+    #ifdef USE_LEVEL_PREDICTOR
+
+    bool LLC = (NAME.compare("LLC") == 0);
+    this->lp[cpu]->confirmAddr(fill_mshr.address,LLC);
+
+    #endif
   }
 
   if (success) {
     // COLLECT STATS
     sim_stats.total_miss_latency += current_cycle - (fill_mshr.cycle_enqueued + 1);
-
-    if (NAME[NAME.length() - 2] == '1') {
-      bool isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
-      if (!isValid) {
-        trackAddr(fill_mshr.address,"is not valid!");
-        if (this->lp[cpu]->wherePresent(fill_mshr.address) == 2) {
-          std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
-          exit(1);
-        }
-        else {
-          
-          this->lp[cpu]->l2C->invalidate_entry(fill_mshr.address);
-          // also check llc's wq and inflight_writes queue. Will need to get rid of all packets there too!
-          // this is easier said than done man :(
-          this->lp[cpu]->l2C->purgeFromInflightWrites(fill_mshr.address);
-          this->lp[cpu]->l2C->purgeFromWriteQueue(fill_mshr.address);
-          this->lp[cpu]->invalidateEntry(fill_mshr.address,false);
-          // lets also purge from our lower level?
-
-          std::deque<champsim::channel::request_type>::iterator tmp;
-          bool found = false;
-          for (auto it = lower_level->WQ.begin(); it != lower_level->WQ.end() ; it++) {
-            if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
-              tmp = it;
-              found = true;
-            }
-          }
-          if (found)
-          lower_level->WQ.erase(tmp);
-        }
-        isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
-      }
-      assert(isValid);
-    }
 
     response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data, metadata_thru, fill_mshr.instr_depend_on_me, fill_mshr.fromL1D, fill_mshr.type, fill_mshr.instr_id, fill_mshr.ip};
     for (auto ret : fill_mshr.to_return)
@@ -321,56 +282,59 @@ bool CACHE::handle_request(const mshr_type& fill_mshr)
 
   bool isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
   if (!isValid) {
-    trackAddr(fill_mshr.address,"is not valid!");
-    if (this->lp[cpu]->wherePresent(fill_mshr.address) == 1) {
-      std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
-      exit(1);
-    }
-    else {
+
+    assert (false && "hyperpredictor should avoid this scenario!");
+
+    // trackAddr(fill_mshr.address,"is not valid!");
+    // if (this->lp[cpu]->wherePresent(fill_mshr.address) == 1) {
+    //   std :: cout << "addr : " << fill_mshr.address << " I am " << NAME << std::endl;
+    //   exit(1);
+    // }
+    // else {
       
-      this->lp[cpu]->llc->invalidate_entry(fill_mshr.address);
-      // also check llc's wq and inflight_writes queue. Will need to get rid of all packets there too!
-      // this is easier said than done man :(
-      this->lp[cpu]->llc->purgeFromInflightWrites(fill_mshr.address);
-      this->lp[cpu]->llc->purgeFromWriteQueue(fill_mshr.address);
-      this->lp[cpu]->invalidateEntry(fill_mshr.address,true);
-      // lets also purge from our lower level
+    //   this->lp[cpu]->llc->invalidate_entry(fill_mshr.address);
+    //   // also check llc's wq and inflight_writes queue. Will need to get rid of all packets there too!
+    //   // this is easier said than done man :(
+    //   this->lp[cpu]->llc->purgeFromInflightWrites(fill_mshr.address);
+    //   this->lp[cpu]->llc->purgeFromWriteQueue(fill_mshr.address);
+    //   this->lp[cpu]->invalidateEntry(fill_mshr.address,true);
+    //   // lets also purge from our lower level
 
-      std::deque<champsim::channel::request_type>::iterator tmp;
-      bool found = false;
-      for (auto it = lower_level->WQ.begin(); it != lower_level->WQ.end() ; it++) {
-        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
-          tmp = it;
-          found = true;
-        }
-      }
-      if (found)
-      lower_level->WQ.erase(tmp);
+    //   std::deque<champsim::channel::request_type>::iterator tmp;
+    //   bool found = false;
+    //   for (auto it = lower_level->WQ.begin(); it != lower_level->WQ.end() ; it++) {
+    //     if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+    //       tmp = it;
+    //       found = true;
+    //     }
+    //   }
+    //   if (found)
+    //   lower_level->WQ.erase(tmp);
 
-      // std::deque<champsim::channel::request_type>::iterator tmp;
-      found = false;
-      for (auto it = lower_level->RQ.begin(); it != lower_level->RQ.end() ; it++) {
-        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
-          tmp = it;
-          found = true;
-        }
-      }
-      if (found)
-      lower_level->RQ.erase(tmp);
+    //   // std::deque<champsim::channel::request_type>::iterator tmp;
+    //   found = false;
+    //   for (auto it = lower_level->RQ.begin(); it != lower_level->RQ.end() ; it++) {
+    //     if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+    //       tmp = it;
+    //       found = true;
+    //     }
+    //   }
+    //   if (found)
+    //   lower_level->RQ.erase(tmp);
 
-      // std::deque<champsim::channel::request_type>::iterator tmp;
-      found = false;
-      for (auto it = lower_level->PQ.begin(); it != lower_level->PQ.end() ; it++) {
-        if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
-          tmp = it;
-          found = true;
-        }
-      }
-      if (found)
-      lower_level->PQ.erase(tmp);
+    //   // std::deque<champsim::channel::request_type>::iterator tmp;
+    //   found = false;
+    //   for (auto it = lower_level->PQ.begin(); it != lower_level->PQ.end() ; it++) {
+    //     if ((it->address >> LOG2_BLOCK_SIZE) == (fill_mshr.address >> LOG2_BLOCK_SIZE)) {
+    //       tmp = it;
+    //       found = true;
+    //     }
+    //   }
+    //   if (found)
+    //   lower_level->PQ.erase(tmp);
 
-    }
-    isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
+    // }
+    // isValid = (this->lp[cpu]->wherePresent(fill_mshr.address) == 0);
   }
   assert(isValid);
 
@@ -397,7 +361,7 @@ bool CACHE::handle_request(const mshr_type& fill_mshr)
 
     #ifdef USE_LEVEL_PREDICTOR
       if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I' || NAME[NAME.length() - 1] == 'B') {
-        return success;
+        return success; // lol ye toh nahi hoga kabhi bhi
       }
 
       request_type writeback_packet;
@@ -483,13 +447,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       way->v_address = 0;
       way->dirty = false;
       way->pf_metadata = 0;
-      // I don't think we need to update replacement state... Will look into it rn, yeah we don't
-      // that is eviction done btw
-      // now if LP is present, need to inform it
       #ifdef USE_LEVEL_PREDICTOR
-
-      this->lp[cpu]->invalidateEntry(handle_pkt.address,(NAME.compare("LLC") == 0)); // should be enough
-
       #endif
     }
 
@@ -506,6 +464,51 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 {
   trackAddr(handle_pkt.address,"Handle_miss");
+
+  #ifdef USE_LEVEL_PREDICTOR
+  if (NAME[NAME.length() - 1] == 'C') {
+    // assert that the packet must be in lower level's write queue
+    auto wq = lower_level->WQ;
+    bool found = false;
+    std::deque<champsim::channel::request_type>::iterator it;
+    for (auto x : wq) {
+      if ((x.address >> LOG2_BLOCK_SIZE) == (handle_pkt.address >> LOG2_BLOCK_SIZE)) {
+        found = true;
+      }
+    }
+    assert(found);
+    champsim::channel::request_type returner;
+    if (found) {
+      std::deque<champsim::channel::request_type>::iterator foundIt;
+      for (it = lower_level->WQ.begin(); it != lower_level->WQ.end(); it++) {
+        if ((it->address >> LOG2_BLOCK_SIZE) == (handle_pkt.address >> LOG2_BLOCK_SIZE)) {
+          returner = *it;
+          foundIt = it;
+        }
+      }
+      lower_level->WQ.erase(foundIt);
+      champsim::channel::response_type r(returner);
+      // for (auto l : handle_pkt.to_return) {
+      //   l->push_back(r);
+      // }
+      if (handle_pkt.fromL1D && NAME.compare("LLC") != 0) {
+        lp[cpu]->l1DToL2->returned.push_back(r);
+      }
+      else if (!handle_pkt.fromL1D && NAME.compare("LLC") != 0) {
+        lp[cpu]->l1IToL2->returned.push_back(r);
+      }
+      else {
+        lp[cpu]->l2ToLLC->returned.push_back(r);
+      }
+    }
+    return true;
+  }
+  // if (NAME[NAME.length() - 1] == 'C') {
+    // std :: cout << "addr = " << handle_pkt.address << std::endl;
+  // }
+  // assert(NAME[NAME.length() - 1] != 'C' && "L2 and LLC should never get misses!");
+  #endif
+
   if constexpr (champsim::debug_print) {
     fmt::print("[{}] {} instr_id: {} address: {:#x} v_address: {:#x} type: {} local_prefetch: {} cycle: {}\n", NAME, __func__,
                handle_pkt.instr_id, handle_pkt.address, handle_pkt.v_address,
@@ -533,17 +536,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     // we will need to uh kick this guy out of the inflight write queue
     inflight_writes.erase(inflight_write_entry);
     // oh wait, we also need to update our mf level predictor
-    #ifdef USE_LEVEL_PREDICTOR
-    // not completely sure of the update mechanism here. It might make sense to also insert into either of LLC or L2C
-    if (NAME[NAME.length() - 1] == 'C') {
-      if (NAME.compare("LLC") == 0) {
-        this->lp[cpu]->invalidateEntry(inflight_write_entry->address,true);
-      }
-      else {
-        this->lp[cpu]->invalidateEntry(inflight_write_entry->address,false);
-      }
-    }
-    #endif
     // and um return true maybe
     return true;
     // I really pray this guy doesn't get added to the damn MSHR queue
@@ -603,16 +595,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
       int whereToLook = this->lp[cpu]->wherePresent(handle_pkt.address);
       fwd_pkt.response_requested = true;
-      // if (((handle_pkt.address >> LOG2_BLOCK_SIZE) == (1137648 >> LOG2_BLOCK_SIZE)) && (NAME == "cpu0_L1D")) {
-      //   std::cout<<"Aya bhai, "<<whereToLook<<"\n";
-      //   if (whereToLook == 2) {
-
-      //     success = this->lp[cpu]->l2ToLLC->add_rq(fwd_pkt);
-      //     std::cout<<"sucess = "<<success<<"\n";
-      //     return success;
-      //   }
-      // }
-
 
       if (whereToLook == 0) {
         // go to DRAM
@@ -653,9 +635,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       }
     }
     else {
-      // if (NAME[NAME.length() - 1] == 'C') {
-        // std::cout<<"This should never happen! Address is "<<handle_pkt.address<<" I am "<<NAME<<"\n";
-      // }
       if (prefetch_as_load || handle_pkt.type != access_type::PREFETCH) {
         success = lower_level->add_rq(fwd_pkt);
         lower_level->check_collision();
@@ -738,6 +717,10 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 }
 
 void CACHE::trackAddr (uint64_t addr, std::string caller) {
+
+  if ((addr >> LOG2_BLOCK_SIZE) == (1307316 >> LOG2_BLOCK_SIZE)) {
+    std :: cout << "tracking " << addr << " caller = " << caller << ", I am " << NAME << std::endl;
+  }
 
   // if (NAME[NAME.length() - 1] == 'B') {
   //   return;
@@ -1191,22 +1174,11 @@ void CACHE::initialize()
 
     this->lp[cpu]->l2C = this;
 
-    if (this->lp[cpu]->llcNumSets != -1) {
-
-      // we can fully initialise structure
-      levelPredictor* tmp = this->lp[cpu];
-      int numSet = std::min(tmp->l2NumSets,tmp->llcNumSets);
-      assert(((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)%(numSet)) == 0);
-      int numWays = ((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)/(numSet));
-      tmp->table = new levelPredictorEntry*[numSet];
-      tmp->extras = new std::vector<levelPredictorEntry> [numSet];
-      for (int i=0; i<numSet; i++) {
-        tmp->table[i] = new levelPredictorEntry[numWays];
-      }
-      tmp->indexingBits = log2(numSet);
-      tmp->numWays = numWays;
-
+    this->lp[cpu]->l2Tracker = new levelPredictorEntry*[this->NUM_SET];
+    for (uint64_t i=0; i < NUM_SET; i++) {
+      lp[cpu]->l2Tracker[i] = new levelPredictorEntry[NUM_WAY];
     }
+
   }
   if (NAME.compare("LLC") == 0) {
     // LLC
@@ -1218,20 +1190,9 @@ void CACHE::initialize()
 
     this->lp[cpu]->llc = this;
 
-    if (this->lp[cpu]->l2NumSets != -1) {
-
-      // we can fully initialise structure
-      levelPredictor* tmp = this->lp[cpu];
-      int numSet = std::min(tmp->l2NumSets,tmp->llcNumSets);
-      assert(((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)%(numSet)) == 0);
-      int numWays = ((tmp->l2NumSets*tmp->l2NumWays + tmp->llcNumSets*tmp->llcNumWays)/(numSet));
-      tmp->table = new levelPredictorEntry*[numSet];
-      for (int i=0; i<numSet; i++) {
-        tmp->table[i] = new levelPredictorEntry[numWays];
-      }
-      tmp->indexingBits = log2(numSet);
-      tmp->numWays = numWays;
-
+    lp[cpu]->llcTracker = new levelPredictorEntry*[NUM_SET];
+    for (size_t i=0; i<NUM_SET; i++) {
+      lp[cpu]->llcTracker[i] = new levelPredictorEntry[NUM_WAY];
     }
 
   }

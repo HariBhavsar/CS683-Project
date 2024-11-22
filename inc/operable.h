@@ -30,18 +30,28 @@ public:
   class levelPredictorEntry {
     public:
     uint64_t tag;
-    bool isInLLC;
-    bool isInBoth;
     bool invalid;
+    bool confirm;
     levelPredictorEntry() {
       invalid = true;
+      confirm = false;
+      lru = 0;
     }
+    uint64_t lru;
   };
 
   class levelPredictor {
+    private:
+    void invalidateEntry (uint64_t addr, bool LLC);
+    int getL2Set (uint64_t cl_addr);
+    int getLLCSet (uint64_t cl_addr);
+    int insert (uint64_t addr, bool LLC); 
+
     public:
-    levelPredictorEntry** table = nullptr;
-    std::vector<levelPredictorEntry> *extras;
+    // levelPredictorEntry** table = nullptr;///
+    levelPredictorEntry** l2Tracker;
+    levelPredictorEntry** llcTracker;
+    // std::vector<levelPredictorEntry> *extras;
     champsim::channel* l1DToLP = nullptr;
     champsim::channel* l1IToLP = nullptr;
     champsim::channel* l2ToLP = nullptr;
@@ -60,20 +70,19 @@ public:
     int l2NumWays = -1;
     int llcNumSets = -1;
     int llcNumWays = -1;
-    int indexingBits = -1;
+    int l2AccCount = -1;
+    int llcAccCount = -1;
     int numWays = -1;
 
-    int getSet (uint64_t cl_addr);
-
     int wherePresent (uint64_t addr);
-
-    void invalidateEntry (uint64_t addr, bool LLC);
-
-    int insert (uint64_t addr, bool LLC); 
+    void writeBack (uint64_t addr);
+    void confirmAddr (uint64_t addr, bool LLC);
 
     levelPredictor() {
       std::cout<<"Constructor called\n";
-      table = nullptr;
+      // table = nullptr;
+      l2Tracker = nullptr;
+      llcTracker = nullptr;
       l1DToLP = nullptr;
       l1IToLP = nullptr;
       l2ToLP = nullptr;
@@ -86,7 +95,8 @@ public:
       l2NumWays = -1;
       llcNumSets = -1;
       llcNumWays = -1;
-      indexingBits = -1;
+      l2AccCount = 0;
+      llcAccCount = 0;
       numWays = -1;
     };
   };
