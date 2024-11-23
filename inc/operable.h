@@ -42,13 +42,13 @@ public:
 
   class levelPredictor {
     private:
-    void invalidateEntry (uint64_t addr, bool LLC);
     int getL2Set (uint64_t cl_addr);
     int getLLCSet (uint64_t cl_addr);
     int insert (uint64_t addr, bool LLC); 
 
     public:
     // levelPredictorEntry** table = nullptr;///
+    void invalidateEntry (uint64_t addr, bool LLC);
     levelPredictorEntry** l2Tracker;
     levelPredictorEntry** llcTracker;
     // std::vector<levelPredictorEntry> *extras;
@@ -136,6 +136,7 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
   virtual uint64_t invalidate_entry (uint64_t inval_addr) {return 0;}
   virtual void purgeFromInflightWrites(uint64_t addr) {return;}
   virtual void purgeFromWriteQueue(uint64_t addr) {return;}
+  virtual bool isInCache (uint64_t addr) {return false;}
 };
 
 } // namespace champsim

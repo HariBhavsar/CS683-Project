@@ -18,7 +18,7 @@ uint32_t CACHE::find_victim(uint32_t triggering_cpu, uint64_t instr_id, uint32_t
   auto begin = std::next(std::begin(::last_used_cycles[this]), set * NUM_WAY);
   auto end = std::next(begin, NUM_WAY);
 
-  // if (set == 461 && (NAME.compare("cpu0_L2C") == 0)) {
+  // if (set == 1646 && (NAME.compare("LLC") == 0)) {
   //   std :: cout << "lru doing smth, curr = " << curr[this] << "\n";
   //   for (auto it = begin; it != end; it = std::next(it,1)) {
   //     std::cout << *it << std::endl;
@@ -38,18 +38,18 @@ void CACHE::update_replacement_state(uint32_t triggering_cpu, uint32_t set, uint
                                      uint8_t hit)
 {
   // Mark the way as being used on the current cycle
-  if (!hit || access_type{type} != access_type::WRITE) // Skip this for writeback hits 
-  {
+  // if (!hit || access_type{type} != access_type::WRITE) // Skip this for writeback hits 
+  // {
 
     ::last_used_cycles[this].at(set * NUM_WAY + way) = curr[this];
     curr[this]++;
-  }
-  else {
-    if (NAME[NAME.length() - 1] == 'C') {
-      std::cout << "addr = " << full_addr << "\n";
-      assert(false && "there should never be a writeback hit in L2 or LLC!");
-    }
-  }
+  // }
+  // else {
+    // if (NAME[NAME.length() - 1] == 'C') {
+      // std::cout << "addr = " << full_addr << "\n";
+      // assert(false && "there should never be a writeback hit in L2 or LLC!");
+    // }
+  // }
 }
 
 void CACHE::replacement_final_stats() {}

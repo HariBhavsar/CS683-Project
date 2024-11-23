@@ -200,12 +200,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   if (NAME[NAME.length() - 1] == 'C') {
     // std::cerr << "Cache is " << NAME << " address is " << fill_mshr.address << " v_addr is " << fill_mshr.v_address << std::endl;
     assert((fill_mshr.responseRequested == false) || (fill_mshr.to_return.size() == 0));
-    #ifdef USE_LEVEL_PREDICTOR
 
-    bool LLC = (NAME.compare("LLC") == 0);
-    this->lp[cpu]->confirmAddr(fill_mshr.address,LLC);
-
-    #endif
   }
 
   if (success) {
@@ -237,9 +232,9 @@ void CACHE::purgeFromInflightWrites (uint64_t addr) {
     inflight_writes.erase(tmp);
   }
 
-  if (addr == 4571532) {
-    std :: cout << "Purge from inflight writes called on sp. addr, I am " << NAME << " found is " << found << std::endl;
-  }
+  // if (addr == 4571532) {
+  //   std :: cout << "Purge from inflight writes called on sp. addr, I am " << NAME << " found is " << found << std::endl;
+  // }
 
 }
 
@@ -256,9 +251,9 @@ void CACHE::purgeFromWriteQueue (uint64_t addr) {
   if (found)
   upper_levels[0]->WQ.erase(tmp);
 
-    if (addr == 4571532) {
-    std :: cout << "Purge from WQ called on sp. addr, I am " << NAME << " found is " << found << std::endl;
-  }
+  //   if (addr == 4571532) {
+  //   std :: cout << "Purge from WQ called on sp. addr, I am " << NAME << " found is " << found << std::endl;
+  // }
 
 }
 
@@ -437,7 +432,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     way->dirty |= (handle_pkt.type == access_type::WRITE);
 
     // need to evict block here
-    if (NAME[NAME.length() - 1] == 'C') {
+    if (NAME[NAME.length() - 1] == 'C' && (handle_pkt.type != access_type::WRITE)) {
       // modification only for L2C and LLC
       // need to do two things
       // 1] Need to evict block from cache
@@ -476,7 +471,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         found = true;
       }
     }
-    assert(found);
+    // if (!found) {
+      // std :: cout << handle_pkt.address << "\n";
+    // }
+    // assert(found);
     champsim::channel::request_type returner;
     if (found) {
       std::deque<champsim::channel::request_type>::iterator foundIt;
@@ -487,6 +485,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         }
       }
       lower_level->WQ.erase(foundIt);
+      returner.address = handle_pkt.address;
+      returner.cpu = handle_pkt.cpu;
+      returner.fromL1D = handle_pkt.fromL1D;
       champsim::channel::response_type r(returner);
       // for (auto l : handle_pkt.to_return) {
       //   l->push_back(r);
@@ -500,9 +501,34 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       else {
         lp[cpu]->l2ToLLC->returned.push_back(r);
       }
+      return true;
+      lp[cpu]->invalidateEntry(handle_pkt.address,(NAME.compare("LLC") == 0));
     }
-    return true;
   }
+
+  // if (NAME[NAME.length() - 1] == 'D' || NAME[NAME.length() - 1] == 'I') {
+  //   auto wq = lower_level->WQ;
+  //   bool found = false;
+  //   std::deque<champsim::channel::request_type>::iterator it;
+  //   for (auto x : wq) {
+  //     if ((x.address >> LOG2_BLOCK_SIZE) == (handle_pkt.address >> LOG2_BLOCK_SIZE)) {
+  //       found = true;
+  //     }
+  //   }
+  //   champsim::channel::request_type returner;
+  //   if (found) {
+  //     std::deque<champsim::channel::request_type>::iterator foundIt;
+  //     for (it = lower_level->WQ.begin(); it != lower_level->WQ.end(); it++) {
+  //       if ((it->address >> LOG2_BLOCK_SIZE) == (handle_pkt.address >> LOG2_BLOCK_SIZE)) {
+  //         returner = *it;
+  //         foundIt = it;
+  //       }
+  //     }
+  //     lower_level->WQ.erase(foundIt);
+  //     champsim::channel::response_type r(returner);
+    
+  //   }
+  
   // if (NAME[NAME.length() - 1] == 'C') {
     // std :: cout << "addr = " << handle_pkt.address << std::endl;
   // }
@@ -687,8 +713,30 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
                current_cycle);
   }
 
+  if (NAME.compare("LLC") == 0) {
+    if (lp[handle_pkt.cpu]->l1D->isInCache(handle_pkt.address) || lp[handle_pkt.cpu]->l1I->isInCache(handle_pkt.address) || lp[handle_pkt.cpu]->l2C->isInCache(handle_pkt.address)) {
+      // std :: cout << handle_pkt.address << " found somewhere else by LLC\n";
+      return true;
+    }
+  }
+  else if (NAME[NAME.length() - 1] == 'C') {
+    if (lp[handle_pkt.cpu]->l1D->isInCache(handle_pkt.address) || lp[handle_pkt.cpu]->l1I->isInCache(handle_pkt.address) || lp[handle_pkt.cpu]->llc->isInCache(handle_pkt.address)) {
+      // std :: cout << handle_pkt.address << " found somewhere else by L2C\n";
+      return true;
+    }    
+  }
+
   inflight_writes.emplace_back(handle_pkt, current_cycle);
   inflight_writes.back().event_cycle = current_cycle + (warmup ? 0 : FILL_LATENCY);
+
+  if (NAME[NAME.length() - 1] == 'C'){
+    #ifdef USE_LEVEL_PREDICTOR
+
+    bool LLC = (NAME.compare("LLC") == 0);
+    this->lp[cpu]->confirmAddr(handle_pkt.address,LLC);
+
+    #endif
+  }
 
   ++sim_stats.misses[champsim::to_underlying(handle_pkt.type)][handle_pkt.cpu];
 
@@ -718,9 +766,9 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
 
 void CACHE::trackAddr (uint64_t addr, std::string caller) {
 
-  if ((addr >> LOG2_BLOCK_SIZE) == (1307316 >> LOG2_BLOCK_SIZE)) {
-    std :: cout << "tracking " << addr << " caller = " << caller << ", I am " << NAME << std::endl;
-  }
+  // if ((addr >> LOG2_BLOCK_SIZE) == (10680780 >> LOG2_BLOCK_SIZE)) {
+  //   std :: cout << "tracking " << addr << " caller = " << caller << ", I am " << NAME << std::endl;
+  // }
 
   // if (NAME[NAME.length() - 1] == 'B') {
   //   return;
@@ -1213,6 +1261,17 @@ void CACHE::begin_phase()
     ul->roi_stats = ul_new_roi_stats;
     ul->sim_stats = ul_new_sim_stats;
   }
+}
+
+bool CACHE::isInCache(uint64_t addr) {
+  // trackAddr(addr,"isInCache");
+  // cpu = handle_pkt.cpu;
+  // access cache
+  auto [set_begin, set_end] = get_set_span(addr);
+  auto way = std::find_if(set_begin, set_end,
+                          [match = (addr >> OFFSET_BITS), shamt = OFFSET_BITS](const auto& entry) { return (entry.address >> shamt) == match; });
+  const auto hit = (way != set_end);  
+  return hit;
 }
 
 void CACHE::end_phase(unsigned finished_cpu)

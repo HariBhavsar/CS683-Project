@@ -44,6 +44,12 @@ namespace champsim
   void operable::levelPredictor::confirmAddr(uint64_t addr, bool LLC) {
 
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+    
+
+    // if (cl_addr == 78282) {
+    //   std::cout << "confirm called for sp block with LLC = " << LLC << "\n";
+    // }
+
     if (LLC) {
 
       int llcSet = getLLCSet(cl_addr);
@@ -55,7 +61,12 @@ namespace champsim
           return;
         }
       }
-
+      // if (cl_addr == (78282)) {
+      //   // std :: cout << "Printing set = " << llcSet <<"\n<tag> \t <lru> \t <invalid> \t <confirm>\n";
+      //   for (int i=0; i<llcNumWays; i++) {
+      //     std::cout << llcTracker[llcSet][i].tag << " \t " << llcTracker[llcSet][i].lru << " \t " << llcTracker[llcSet][i].invalid << " \t " << llcTracker[llcSet][i].confirm <<"\n";
+      //   }
+      // }
       // assert(false && "Damn hyperpredictor too far ahead!");
 
     }
@@ -80,6 +91,12 @@ namespace champsim
   void operable::levelPredictor::invalidateEntry (uint64_t addr, bool LLC) {
 
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+
+
+    // if (cl_addr == 78282) {
+    //   std::cout << "invalidate called for sp block with LLC = " << LLC << "\n";
+    // }
+
     if (LLC) {
       int llcSet = getLLCSet(cl_addr);
       for (int i=0; i<llcNumWays; i++) {
@@ -115,13 +132,17 @@ namespace champsim
 
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
 
+    // if (cl_addr == 78282) {
+    //   std::cout << "insert called for sp block with LLC = " << LLC << "\n";
+    // }
+
     if (LLC) {
       int llcSet = getLLCSet(cl_addr);
       int freeWay = -1;
       int lruEntry = 0;
       for (size_t i=0; i < llcNumWays; i++) {
         if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
-          std::cout << addr << std::endl;
+          // std::cout << addr << std::endl;
           assert(false && "Inserting address into llc but address already in llc");
         }
         else if (llcTracker[llcSet][i].invalid) {
@@ -140,10 +161,19 @@ namespace champsim
       }
       else {
         // simulate eviction, need to evict lru entry
-        assert(!(llcTracker[llcSet][lruEntry].invalid) && llcTracker[llcSet][lruEntry].confirm && "LLC LRU entry must be confirm present in LLC!");
-        if ((llcTracker[llcSet][lruEntry].tag) == (3699576 >> LOG2_BLOCK_SIZE)) {
-          std::cout << "Predicting eviction of sp. address from LLC\n";
-        }
+        // if (!(!(llcTracker[llcSet][lruEntry].invalid) && llcTracker[llcSet][lruEntry].confirm)) {
+        //   // std :: cout << llcTracker[llcSet][lruEntry].tag << "\n";
+
+        //   // std :: cout << "Printing set = " << llcSet <<"\n<tag> \t <lru> \t <invalid> \t <confirm>\n";
+        //   // for (int i=0; i<llcNumWays; i++) {
+        //   //   std::cout << llcTracker[llcSet][i].tag << " \t " << llcTracker[llcSet][i].lru << " \t " << llcTracker[llcSet][i].invalid << " \t " << llcTracker[llcSet][i].confirm <<"\n";
+        //   // }
+
+        // }
+        // assert(!(llcTracker[llcSet][lruEntry].invalid) && llcTracker[llcSet][lruEntry].confirm && "LLC LRU entry must be confirm present in LLC!");
+        // if ((llcTracker[llcSet][lruEntry].tag) == (3699576 >> LOG2_BLOCK_SIZE)) {
+        //   std::cout << "Predicting eviction of sp. address from LLC\n";
+        // }
         llcTracker[llcSet][lruEntry].invalid = false;
         llcTracker[llcSet][lruEntry].tag = cl_addr;
         llcTracker[llcSet][lruEntry].lru = llcAccCount;
@@ -157,7 +187,7 @@ namespace champsim
       int lruEntry = 0;
       for (size_t i=0; i<l2NumWays; i++) {
         if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
-          std::cout << "addr = " << addr << std::endl;
+          // std::cout << "addr = " << addr << std::endl;
           assert(false && "Inserting address into l2 but address already in l2");
         }
         else if (l2Tracker[l2Set][i].invalid) {
@@ -176,7 +206,7 @@ namespace champsim
       }
       else {
         // simulate eviction, need to evict lru entry => put it in LLC
-        assert(!(l2Tracker[l2Set][lruEntry].invalid) && l2Tracker[l2Set][lruEntry].confirm && "L2 LRU entry must be confirmed and valid!");
+        // assert(!(l2Tracker[l2Set][lruEntry].invalid) && l2Tracker[l2Set][lruEntry].confirm && "L2 LRU entry must be confirmed and valid!");
         // if ((l2Tracker[l2Set][lruEntry].tag) == (3699576 >> LOG2_BLOCK_SIZE)) {
           
         //   std::cout << "Set = " << l2Set << "\n";
@@ -202,6 +232,11 @@ namespace champsim
   int operable::levelPredictor::wherePresent(uint64_t addr) {
     // returns 0 if addr in DRAM, 1 if in L2 and 2 if in LLC
     uint64_t cl_addr = (addr >> LOG2_BLOCK_SIZE);
+
+    // if (cl_addr == 78282) {
+    //   std::cout << "where present called for sp block\n";
+    // }
+
     int l2Set = getL2Set(cl_addr);
     for (size_t i=0; i < l2NumWays; i++) {
       if (!(l2Tracker[l2Set][i].invalid) && (l2Tracker[l2Set][i].tag == cl_addr)) {
@@ -219,6 +254,7 @@ namespace champsim
       else if (!(llcTracker[llcSet][i].invalid) && (llcTracker[llcSet][i].tag == cl_addr)) {
         // we should predict L2 here!
         invalidateEntry(addr,true); // not 100% sure about this, might cause bt
+        // std :: cout << "Predicting bt for " << addr << "\n";
         return 1;
       }
     }

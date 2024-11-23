@@ -199,6 +199,7 @@ static std::vector<operable::levelPredictor*> lp;  // Declaration
   uint64_t invalidate_entry(uint64_t inval_addr) override final;
   void purgeFromInflightWrites(uint64_t addr) override final;
   void purgeFromWriteQueue(uint64_t addr) override final;
+  bool isInCache(uint64_t addr) override final;
   void end_phase(unsigned cpu) override final;
 
   [[deprecated("get_occupancy() returns 0 for every input except 0 (MSHR). Use get_mshr_occupancy() instead.")]] std::size_t get_occupancy(uint8_t queue_type,
